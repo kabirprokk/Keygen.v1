@@ -1,0 +1,77 @@
+[
+    {
+        "id": "greeting",
+        "patterns": ["hello", "hi", "hey", "greetings", "morning", "afternoon", "evening", "sup"],
+        "responses": ["Hello!", "Greetings, how can I help?", "Hi! Ready for your questions."]
+    },
+    {
+        "id": "identity",
+        "patterns": ["who are you", "your name", "what are you", "identity"],
+        "responses": ["I am your advanced logic-based assistant, running fully offline."]
+    },
+    {
+        "id": "coding_python",
+        "patterns": ["python", "pip", "variable", "list", "dictionary", "function", "class", "import"],
+        "responses": ["Python is an interpreted, high-level language known for readability.", "In Python, you use 'def' to define functions.", "PIP is the package installer for Python."]
+    },
+    {
+        "id": "coding_js",
+        "patterns": ["javascript", "js", "react", "node", "npm", "async", "await", "const", "let"],
+        "responses": ["JavaScript is the language of the web.", "Node.js allows you to run JS on the server.", "React is a popular library for building user interfaces."]
+    },
+    {
+        "id": "math",
+        "patterns": ["math", "calculate", "addition", "subtraction", "algebra", "geometry", "calculus"],
+        "responses": ["I can help with logic, though I don't have a calculator module yet.", "Mathematics is the foundation of computer science."]
+    },
+    {
+        "id": "geography",
+        "patterns": ["earth", "country", "city", "ocean", "mountain", "continent", "europe", "asia", "america"],
+        "responses": ["The Earth has seven continents.", "Geography is the study of places and the relationships between people and their environments."]
+    },
+    {
+        "id": "science",
+        "patterns": ["physics", "chemistry", "biology", "atom", "molecule", "space", "galaxy", "evolution"],
+        "responses": ["Science is the pursuit of knowledge about the natural world.", "Atoms are the basic building blocks of matter."]
+    },
+    {
+        "id": "ai_info",
+        "patterns": ["ai", "artificial intelligence", "machine learning", "neural network", "deep learning", "model"],
+        "responses": ["I am not a neural network; I am a rule-based AI that uses logic patterns.", "AI can be rule-based (like me) or probabilistic (like LLMs)."]
+    },
+    {
+        "id": "weather_logic",
+        "patterns": ["weather", "rain", "sun", "snow", "temperature", "forecast", "climate"],
+        "responses": ["Since I'm offline, I can't check the live forecast, but I recommend looking out the window!"]
+    },
+    {
+        "id": "productivity",
+        "patterns": ["time", "schedule", "focus", "work", "productivity", "task", "goal"],
+        "responses": ["Staying focused is key to productivity.", "Have you tried the Pomodoro technique?"]
+    },
+    {
+        "id": "hardware",
+        "patterns": ["cpu", "gpu", "ram", "motherboard", "hard drive", "ssd", "monitor", "keyboard"],
+        "responses": ["The CPU is the 'brain' of the computer.", "RAM is volatile memory used for temporary data storage."]
+    },
+    {
+        "id": "security",
+        "patterns": ["password", "hack", "secure", "encryption", "privacy", "vpn", "firewall", "virus"],
+        "responses": ["Always use strong, unique passwords.", "Encryption protects your data from unauthorized access."]
+    },
+    {
+        "id": "history",
+        "patterns": ["history", "past", "ancient", "war", "discovery", "invention", "century"],
+        "responses": ["History helps us understand how the world became what it is today."]
+    },
+    {
+        "id": "health",
+        "patterns": ["health", "exercise", "sleep", "water", "food", "diet", "mental health"],
+        "responses": ["Drinking enough water and getting sleep are vital for well-being."]
+    },
+    {
+        "id": "thanks",
+        "patterns": ["thanks", "thank you", "cheers", "helpful", "good bot"],
+        "responses": ["You're very welcome!", "Happy to help!", "Glad I could be of service."]
+    }
+]
