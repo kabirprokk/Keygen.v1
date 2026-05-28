@@ -169,12 +169,7 @@ class KeyGenAI:
             topic = raw_input.replace("learn about ", "").strip()
             return self.apply_grammar(self.wikipedia_learning(topic))
 
-        # 1. Pure Emotion Shield
-        subject_keywords = [t for t in tokens if t not in self.stopwords and t not in self.emotions and len(t) > 3]
-        if emotion_prefix and not subject_keywords and len(tokens) <= 4:
-            return self.apply_grammar(emotion_prefix)
-
-        # 2. Fact Engine (GK Priority)
+        # 2. Fact Engine (GK Priority) - CHECK THIS EARLY
         for fact in self.gk_base:
             if fact["q"] in raw_input:
                 return self.apply_grammar(emotion_prefix + fact["a"])
@@ -185,7 +180,12 @@ class KeyGenAI:
                 if pattern.lower() in raw_input:
                     return self.apply_grammar(emotion_prefix + random.choice(module["responses"]))
 
-        # 4. Precision Search (.txt files)
+        # 4. Pure Emotion Shield (If no specific logic matches)
+        subject_keywords = [t for t in tokens if t not in self.stopwords and t not in self.emotions and len(t) > 3]
+        if emotion_prefix and not subject_keywords and len(tokens) <= 4:
+            return self.apply_grammar(emotion_prefix)
+
+        # 5. Precision Search (.txt files)
         keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
         if keywords:
             best_sentence = None
@@ -195,19 +195,17 @@ class KeyGenAI:
                 if overlap > max_overlap:
                     max_overlap = overlap
                     best_sentence = sentence
-            if best_sentence and max_overlap >= 2:
+            # Lowered threshold to 1 to reduce nonsensical fallbacks
+            if best_sentence and max_overlap >= 1:
                 return self.apply_grammar(emotion_prefix + best_sentence)
 
-        # 5. Multi-Engine Research
+        # 6. Multi-Engine Research
         if len(tokens) >= 2:
             research_result = self.deep_research_engine(user_input)
             if research_result:
                 return emotion_prefix + research_result
 
-        # 6. Fallback Hallucination
-        if len(self.markov_graph) > 20:
-            return self.apply_grammar(emotion_prefix + self.generate_hallucination(tokens))
-
+        # 7. Fallback (Only if absolutely nothing else matches)
         return self.apply_grammar(emotion_prefix + "My verification systems could not find a definitive answer. Type 'Learn about [topic]' to help me study!")
 
 # --- WEB SERVER LOGIC ---
