@@ -34,6 +34,42 @@ class KeyGenAI:
         
         self.load_all_data()
 
+    def tokenize(self, text):
+        return re.findall(r'\b\w+\b', text.lower())
+
+    def build_markov(self, tokens):
+        for i in range(len(tokens) - 1):
+            self.markov_graph[tokens[i]].append(tokens[i+1])
+
+    def get_emotion_prefix(self, text):
+        for emotion, responses in self.emotions.items():
+            if emotion in text.lower():
+                return random.choice(responses) + " "
+        return ""
+
+    def apply_grammar(self, text):
+        if not text: return ""
+        text = text.strip()
+        if not text: return ""
+        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+        if text[-1] not in ".!?": text += "."
+        return text
+
+    def wikipedia_learning(self, topic):
+        return self.deep_research_engine(f"wikipedia {topic}") or f"I tried to learn about {topic} but couldn't find anything."
+
+    def generate_hallucination(self, tokens):
+        seed_words = [t for t in tokens if t in self.markov_graph]
+        word = random.choice(seed_words) if seed_words else random.choice(list(self.markov_graph.keys()))
+        
+        result = [word]
+        for _ in range(15):
+            if word in self.markov_graph:
+                word = random.choice(self.markov_graph[word])
+                result.append(word)
+            else: break
+        return " ".join(result)
+
     def load_all_data(self):
         # 1. Load Logic Modules (JSON)
         if os.path.exists(self.data_file):
@@ -182,8 +218,13 @@ class ChatHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
-            with open('index.html', 'rb') as f:
-                self.wfile.write(f.read())
+            # FIX: Ensure we look in the 'public' directory
+            index_path = os.path.join(os.path.dirname(__file__), 'public', 'index.html')
+            try:
+                with open(index_path, 'rb') as f:
+                    self.wfile.write(f.read())
+            except FileNotFoundError:
+                self.wfile.write(b"Error: public/index.html not found.")
 
     def do_POST(self):
         if self.path == '/chat':
@@ -196,14 +237,33 @@ class ChatHandler(BaseHTTPRequestHandler):
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
+            # ALLOW CROSS-ORIGIN (CORS)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
             self.end_headers()
             self.wfile.write(json.dumps({'response': response_text}).encode())
 
+    def do_OPTIONS(self):
+        """Handle pre-flight requests from browsers."""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
 def run_server():
+    # Render provides a PORT environment variable
+    port = int(os.environ.get("PORT", 10000))
     bot = KeyGenAI()
     ChatHandler.bot = bot
-    server = HTTPServer(('localhost', 8080), ChatHandler)
-    print("KeyGen.ai Professional Web Interface Online at http://localhost:8080")
+    
+    # Explicitly bind to 0.0.0.0 for Render
+    server_address = ('0.0.0.0', port)
+    server = HTTPServer(server_address, ChatHandler)
+    
+    print(f"--- KeyGen.ai SYSTEM ONLINE ---")
+    print(f"Server listening on 0.0.0.0:{port}")
     server.serve_forever()
 
 if __name__ == "__main__":
