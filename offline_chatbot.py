@@ -6,6 +6,8 @@ import urllib.request
 import urllib.parse
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import language_tool_python
+from textblob import TextBlob
 
 class KeyGenAI:
     def __init__(self, knowledge_dir="knowledge", data_file="data.json", gk_file="gk_knowledge.json"):
@@ -25,6 +27,12 @@ class KeyGenAI:
         self.gk_base = []
         self.stopwords = {"a", "an", "the", "and", "or", "but", "is", "are", "was", "were", "to", "at", "by", "for", "of", "with"}
         
+        # Initialize grammar tool
+        try:
+            self.grammar_tool = language_tool_python.LanguageTool('en-US')
+        except:
+            self.grammar_tool = None
+            
         self.emotions = {
             "happy": ["I'm delighted to see you're in a good mood!", "That's wonderful news!", "I'm glad you're feeling positive!"],
             "sad": ["I'm sorry you're feeling this way. I'm here to help.", "I understand. Sometimes things are difficult."],
@@ -47,13 +55,219 @@ class KeyGenAI:
                 return random.choice(responses) + " "
         return ""
 
-    def apply_grammar(self, text):
-        if not text: return ""
+    def grammar_checker(self, text):
+        """Advanced grammar checking and correction"""
+        if not text:
+            return ""
+        
+        # Basic punctuation and capitalization
         text = text.strip()
-        if not text: return ""
-        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
-        if text[-1] not in ".!?": text += "."
-        return text
+        if not text:
+            return ""
+        
+        # Use TextBlob for basic correction
+        blob = TextBlob(text)
+        corrected = str(blob.correct())
+        
+        # Use LanguageTool for advanced grammar checking
+        if self.grammar_tool:
+            matches = self.grammar_tool.check(corrected)
+            corrected = language_tool_python.utils.correct(corrected, matches)
+        
+        # Ensure proper capitalization
+        corrected = corrected[0].upper() + corrected[1:] if len(corrected) > 1 else corrected.upper()
+        
+        # Ensure proper ending punctuation
+        if corrected[-1] not in ".!?":
+            corrected += "."
+        
+        return corrected
+
+    def rephraser(self, text, style="clean"):
+        """Rephrases text in different styles: clean, professional, simple, or creative"""
+        if not text:
+            return ""
+        
+        blob = TextBlob(text)
+        
+        if style == "clean":
+            # Remove redundant words and simplify
+            words = text.split()
+            cleaned = []
+            for i, word in enumerate(words):
+                if word.lower() not in self.stopwords or (i > 0 and i < len(words)-1):
+                    cleaned.append(word)
+            result = " ".join(cleaned)
+            
+        elif style == "professional":
+            # Make it more formal
+            result = text.replace("I think", "Based on analysis")
+            result = result.replace("maybe", "potentially")
+            result = result.replace("a lot", "significantly")
+            
+        elif style == "simple":
+            # Make it easier to understand
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            simple_sentences = []
+            for sentence in sentences:
+                if len(sentence.split()) > 20:
+                    words = sentence.split()
+                    chunk_size = 15
+                    chunks = [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
+                    simple_sentences.extend(chunks)
+                else:
+                    simple_sentences.append(sentence)
+            result = ". ".join(simple_sentences)
+            
+        else:  # creative
+            # Add variety and flair
+            result = text
+            creative_phrases = ["Interestingly, ", "Notably, ", "Furthermore, ", "In addition, "]
+            if len(result.split()) > 5:
+                insert_pos = len(result) // 3
+                result = result[:insert_pos] + random.choice(creative_phrases) + result[insert_pos:]
+        
+        return self.grammar_checker(result)
+
+    def google_search(self, query):
+        """Advanced Google search with fallback mechanisms"""
+        print(f"({self.name} is searching Google for accurate information...)")
+        
+        # Clean the query
+        clean_query = query.strip()
+        
+        # List of search URLs with fallbacks
+        search_urls = [
+            f"https://www.google.com/search?q={urllib.parse.quote(clean_query)}",
+            f"https://www.bing.com/search?q={urllib.parse.quote(clean_query)}",
+            f"https://duckduckgo.com/html/?q={urllib.parse.quote(clean_query)}"
+        ]
+        
+        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        
+        for url in search_urls:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': user_agent})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    html = response.read().decode('utf-8', errors='ignore')
+                
+                # Extract meaningful content
+                # Look for paragraphs and text blocks
+                text_blocks = re.findall(r'<p[^>]*>(.*?)</p>', html, re.DOTALL)
+                text_blocks.extend(re.findall(r'<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL))
+                
+                # Clean the extracted text
+                cleaned_blocks = []
+                for block in text_blocks:
+                    # Remove HTML tags
+                    clean = re.sub(r'<.*?>', '', block)
+                    # Remove extra whitespace
+                    clean = re.sub(r'\s+', ' ', clean)
+                    clean = clean.strip()
+                    
+                    # Filter out short or irrelevant blocks
+                    if len(clean) > 100 and "cookie" not in clean.lower() and "privacy" not in clean.lower():
+                        cleaned_blocks.append(clean)
+                
+                if cleaned_blocks:
+                    # Get the longest, most relevant block
+                    best_result = max(cleaned_blocks, key=len)
+                    
+                    # Limit length for reasonable response
+                    if len(best_result) > 1000:
+                        best_result = best_result[:1000] + "..."
+                    
+                    # Polish and save to memory
+                    polished = self.polish_and_save_web_data(best_result)
+                    return polished
+                    
+            except Exception as e:
+                print(f"Search error with {url}: {e}")
+                continue
+        
+        return None
+
+    def get_detailed_answer(self, question, context=""):
+        """Generates detailed, accurate answers based on the question"""
+        
+        # Check knowledge base first
+        best_match = None
+        highest_score = 0
+        
+        # Search through knowledge base for relevant content
+        for sentence in self.raw_data_chunks:
+            score = self.calculate_relevance_score(question, sentence)
+            if score > highest_score:
+                highest_score = score
+                best_match = sentence
+        
+        # If good match found in knowledge base
+        if best_match and highest_score > 0.3:
+            # Expand the answer with context
+            words = best_match.split()
+            if len(words) < 30:
+                # Find surrounding context
+                for s in self.raw_data_chunks:
+                    if best_match in s and len(s.split()) > len(words):
+                        best_match = s
+                        break
+            
+            answer = self.generate_detailed_response(question, best_match)
+            return answer
+        
+        # Search online if no good match
+        search_result = self.google_search(question)
+        if search_result:
+            return self.generate_detailed_response(question, search_result)
+        
+        return None
+
+    def calculate_relevance_score(self, question, text):
+        """Calculate how relevant a text is to the question"""
+        question_words = set(self.tokenize(question))
+        text_words = set(self.tokenize(text))
+        
+        if not question_words:
+            return 0
+        
+        overlap = len(question_words.intersection(text_words))
+        return overlap / len(question_words)
+
+    def generate_detailed_response(self, question, content):
+        """Generate a detailed, well-structured response"""
+        
+        # Tokenize question to understand what's being asked
+        question_lower = question.lower()
+        
+        # Determine question type
+        if question_lower.startswith(("what", "which")):
+            response = f"Based on available information, here's what I found:\n\n{content}"
+        elif question_lower.startswith(("how", "why")):
+            response = f"Let me explain this in detail:\n\n{content}"
+        elif question_lower.startswith(("where", "when", "who")):
+            response = f"Here are the specific details:\n\n{content}"
+        else:
+            response = f"Here's the information you requested:\n\n{content}"
+        
+        # Add additional context if available
+        if len(content.split()) < 100:
+            additional = self.find_additional_context(content)
+            if additional:
+                response += f"\n\nAdditionally: {additional}"
+        
+        return response
+
+    def find_additional_context(self, content):
+        """Find additional context related to the content"""
+        keywords = self.tokenize(content)[:5]
+        for sentence in self.raw_data_chunks:
+            if any(kw in sentence.lower() for kw in keywords) and sentence != content:
+                return sentence[:200]
+        return None
+
+    def apply_grammar(self, text):
+        """Legacy method - now uses enhanced grammar checker"""
+        return self.grammar_checker(text)
 
     def wikipedia_learning(self, topic):
         return self.deep_research_engine(f"wikipedia {topic}") or f"I tried to learn about {topic} but couldn't find anything."
@@ -81,8 +295,10 @@ class KeyGenAI:
             with open(self.gk_file, 'r', encoding='utf-8') as f:
                 self.gk_base = json.load(f)
         
-        # 3. Load Knowledge Directory (WITHOUT listing full contents for efficiency)
-        if not os.path.exists(self.knowledge_dir): os.makedirs(self.knowledge_dir)
+        # 3. Load Knowledge Directory
+        if not os.path.exists(self.knowledge_dir): 
+            os.makedirs(self.knowledge_dir)
+            
         all_tokens = []
         for filename in os.listdir(self.knowledge_dir):
             if filename.endswith(".txt"):
@@ -95,13 +311,13 @@ class KeyGenAI:
                         all_tokens.extend(self.tokenize(text))
                 except: continue
         
-        if all_tokens: self.build_markov(all_tokens)
+        if all_tokens: 
+            self.build_markov(all_tokens)
         print(f"--- {self.name} SYSTEM ONLINE (Autonomous Mode) ---")
 
     def learn_from_user(self, text):
         """Autonomous Learning: Analyzes user input for factual patterns and saves them."""
         words = text.split()
-        # Heuristic: If it's a long sentence containing 'is/was' and no question mark, it's likely a fact.
         if len(words) > 8 and any(x in text.lower() for x in [" is ", " was ", " are ", " were "]) and "?" not in text:
             try:
                 with open(self.user_mem_file, 'a', encoding='utf-8') as f:
@@ -113,11 +329,10 @@ class KeyGenAI:
 
     def polish_and_save_web_data(self, text):
         """Cleans web data of boilerplate and saves it to the offline brain."""
-        # 1. Strip HTML tags
         clean = re.sub(r'<.*?>', '', text)
-        # 2. Remove common web noise
         noise = ["click here", "read more", "cookies", "privacy policy", "subscribe", "advertisement"]
-        for n in noise: clean = clean.replace(n, "")
+        for n in noise: 
+            clean = clean.replace(n, "")
         
         clean = clean.strip()
         if len(clean) > 50:
@@ -145,7 +360,6 @@ class KeyGenAI:
                 with urllib.request.urlopen(req, timeout=3) as response:
                     html = response.read().decode('utf-8', errors='ignore')
                 
-                # Extract text blocks
                 potential = re.findall(r'>(.*?)<', html)
                 cleaned = [s.strip() for s in potential if len(s.strip()) > 60 and "{" not in s]
                 
@@ -157,35 +371,52 @@ class KeyGenAI:
         return None
 
     def get_response(self, user_input):
+        """Main response handler with enhanced processing pipeline"""
         raw_input = user_input.lower().strip()
         emotion_prefix = self.get_emotion_prefix(raw_input)
         tokens = self.tokenize(raw_input)
         
-        # 0. Autonomous Conversation Learning
+        # Autonomous Conversation Learning
         self.learn_from_user(user_input)
 
-        # 1. Self-Learning Command
+        # Self-Learning Command
         if raw_input.startswith("learn about "):
             topic = raw_input.replace("learn about ", "").strip()
-            return self.apply_grammar(self.wikipedia_learning(topic))
+            result = self.wikipedia_learning(topic)
+            # Apply rephraser and grammar checker
+            result = self.rephraser(result, "clean")
+            return self.grammar_checker(result)
 
-        # 2. Fact Engine (GK Priority) - CHECK THIS EARLY
+        # Check if this is a question requiring detailed answer
+        if "?" in user_input or raw_input.startswith(("what", "why", "how", "where", "when", "who", "which")):
+            detailed_answer = self.get_detailed_answer(user_input)
+            if detailed_answer:
+                # Apply rephraser for clarity
+                detailed_answer = self.rephraser(detailed_answer, "clean")
+                # Final grammar check
+                detailed_answer = self.grammar_checker(detailed_answer)
+                return self.apply_grammar(emotion_prefix + detailed_answer)
+
+        # Fact Engine (GK Priority)
         for fact in self.gk_base:
             if fact["q"] in raw_input:
-                return self.apply_grammar(emotion_prefix + fact["a"])
+                result = self.rephraser(fact["a"], "clean")
+                return self.apply_grammar(emotion_prefix + self.grammar_checker(result))
 
-        # 3. Logic Modules (JSON)
+        # Logic Modules (JSON)
         for module in self.knowledge_base:
             for pattern in module["patterns"]:
                 if pattern.lower() in raw_input:
-                    return self.apply_grammar(emotion_prefix + random.choice(module["responses"]))
+                    result = random.choice(module["responses"])
+                    result = self.rephraser(result, "clean")
+                    return self.apply_grammar(emotion_prefix + self.grammar_checker(result))
 
-        # 4. Pure Emotion Shield (If no specific logic matches)
+        # Pure Emotion Shield
         subject_keywords = [t for t in tokens if t not in self.stopwords and t not in self.emotions and len(t) > 3]
         if emotion_prefix and not subject_keywords and len(tokens) <= 4:
             return self.apply_grammar(emotion_prefix)
 
-        # 5. Precision Search (.txt files)
+        # Precision Search (.txt files)
         keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
         if keywords:
             best_sentence = None
@@ -195,18 +426,25 @@ class KeyGenAI:
                 if overlap > max_overlap:
                     max_overlap = overlap
                     best_sentence = sentence
-            # Lowered threshold to 1 to reduce nonsensical fallbacks
+                    
             if best_sentence and max_overlap >= 1:
+                # Rephrase for better readability
+                best_sentence = self.rephraser(best_sentence, "clean")
                 return self.apply_grammar(emotion_prefix + best_sentence)
 
-        # 6. Multi-Engine Research
+        # Google Search (if no answer found in data)
         if len(tokens) >= 2:
-            research_result = self.deep_research_engine(user_input)
-            if research_result:
-                return emotion_prefix + research_result
+            print(f"Searching Google for: {user_input}")
+            search_result = self.google_search(user_input)
+            if search_result:
+                # Rephrase the search result
+                search_result = self.rephraser(search_result, "clean")
+                return emotion_prefix + self.grammar_checker(search_result)
 
-        # 7. Fallback (Only if absolutely nothing else matches)
-        return self.apply_grammar(emotion_prefix + "My verification systems could not find a definitive answer. Type 'Learn about [topic]' to help me study!")
+        # Fallback
+        fallback_msg = "My verification systems could not find a definitive answer. Type 'Learn about [topic]' to help me study!"
+        fallback_msg = self.rephraser(fallback_msg, "clean")
+        return self.apply_grammar(emotion_prefix + fallback_msg)
 
 # --- WEB SERVER LOGIC ---
 class ChatHandler(BaseHTTPRequestHandler):
@@ -216,7 +454,6 @@ class ChatHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
-            # FIX: Ensure we look in the 'public' directory
             index_path = os.path.join(os.path.dirname(__file__), 'public', 'index.html')
             try:
                 with open(index_path, 'rb') as f:
@@ -235,7 +472,6 @@ class ChatHandler(BaseHTTPRequestHandler):
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
-            # ALLOW CROSS-ORIGIN (CORS)
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
             self.send_header('Access-Control-Allow-Headers', 'Content-Type')
@@ -243,7 +479,6 @@ class ChatHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'response': response_text}).encode())
 
     def do_OPTIONS(self):
-        """Handle pre-flight requests from browsers."""
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -251,17 +486,16 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
 def run_server():
-    # Render provides a PORT environment variable
     port = int(os.environ.get("PORT", 10000))
     bot = KeyGenAI()
     ChatHandler.bot = bot
     
-    # Explicitly bind to 0.0.0.0 for Render
     server_address = ('0.0.0.0', port)
     server = HTTPServer(server_address, ChatHandler)
     
-    print(f"--- KeyGen.ai SYSTEM ONLINE ---")
+    print(f"--- KeyGen.ai SYSTEM ONLINE (Enhanced Version) ---")
     print(f"Server listening on 0.0.0.0:{port}")
+    print("Features enabled: Rephraser, Grammar Checker, Google Search")
     server.serve_forever()
 
 if __name__ == "__main__":
