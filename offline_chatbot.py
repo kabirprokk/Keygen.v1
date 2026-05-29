@@ -6,7 +6,6 @@ import urllib.request
 import urllib.parse
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import language_tool_python
 from textblob import TextBlob
 
 class KeyGenAI:
@@ -27,12 +26,6 @@ class KeyGenAI:
         self.gk_base = []
         self.stopwords = {"a", "an", "the", "and", "or", "but", "is", "are", "was", "were", "to", "at", "by", "for", "of", "with"}
         
-        # Initialize grammar tool
-        try:
-            self.grammar_tool = language_tool_python.LanguageTool('en-US')
-        except:
-            self.grammar_tool = None
-            
         self.emotions = {
             "happy": ["I'm delighted to see you're in a good mood!", "That's wonderful news!", "I'm glad you're feeling positive!"],
             "sad": ["I'm sorry you're feeling this way. I'm here to help.", "I understand. Sometimes things are difficult."],
@@ -56,32 +49,22 @@ class KeyGenAI:
         return ""
 
     def grammar_checker(self, text):
-        """Advanced grammar checking and correction"""
+        """Basic grammar checking without external dependencies"""
         if not text:
             return ""
         
-        # Basic punctuation and capitalization
         text = text.strip()
         if not text:
             return ""
         
-        # Use TextBlob for basic correction
-        blob = TextBlob(text)
-        corrected = str(blob.correct())
-        
-        # Use LanguageTool for advanced grammar checking
-        if self.grammar_tool:
-            matches = self.grammar_tool.check(corrected)
-            corrected = language_tool_python.utils.correct(corrected, matches)
-        
-        # Ensure proper capitalization
-        corrected = corrected[0].upper() + corrected[1:] if len(corrected) > 1 else corrected.upper()
+        # Basic punctuation and capitalization
+        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
         
         # Ensure proper ending punctuation
-        if corrected[-1] not in ".!?":
-            corrected += "."
+        if text[-1] not in ".!?":
+            text += "."
         
-        return corrected
+        return text
 
     def rephraser(self, text, style="clean"):
         """Rephrases text in different styles: clean, professional, simple, or creative"""
@@ -449,6 +432,7 @@ class KeyGenAI:
 # --- WEB SERVER LOGIC ---
 class ChatHandler(BaseHTTPRequestHandler):
     bot = None
+    
     def do_GET(self):
         if self.path == '/':
             self.send_response(200)
@@ -460,6 +444,11 @@ class ChatHandler(BaseHTTPRequestHandler):
                     self.wfile.write(f.read())
             except FileNotFoundError:
                 self.wfile.write(b"Error: public/index.html not found.")
+        elif self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'healthy'}).encode())
 
     def do_POST(self):
         if self.path == '/chat':
