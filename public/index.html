@@ -3,129 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KeyGen.ai | Professional Interface</title>
-    <style>
-        :root {
-            --primary: #2563eb;
-            --bg: #f8fafc;
-            --text: #1e293b;
-            --bot-msg: #ffffff;
-            --user-msg: #dbeafe;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        header {
-            background: var(--primary);
-            color: white;
-            padding: 1rem;
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        #chat-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        .message {
-            max-width: 80%;
-            padding: 0.8rem 1.2rem;
-            border-radius: 1rem;
-            line-height: 1.5;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-        .bot {
-            align-self: flex-start;
-            background: var(--bot-msg);
-            border-bottom-left-radius: 0;
-        }
-        .user {
-            align-self: flex-end;
-            background: var(--user-msg);
-            border-bottom-right-radius: 0;
-        }
-        #input-container {
-            padding: 1rem;
-            background: white;
-            display: flex;
-            gap: 0.5rem;
-            border-top: 1px solid #e2e8f0;
-        }
-        input {
-            flex: 1;
-            padding: 0.8rem;
-            border: 1px solid #cbd5e1;
-            border-radius: 0.5rem;
-            outline: none;
-        }
-        input:focus { border-color: var(--primary); }
-        button {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 0.8rem 1.5rem;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        button:hover { opacity: 0.9; }
-    </style>
+    <title>KeyGen.ai | Premium Offline Intelligence</title>
+    <link rel="stylesheet" href="index.css">
 </head>
 <body>
-    <header>KeyGen.ai</header>
-    <div id="chat-container">
-        <div class="message bot">System Online. How can I assist you with my advanced offline knowledge today?</div>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <div class="header-logo">🤖</div>
+                <div class="header-title">
+                    <h1>KeyGen.ai</h1>
+                    <div class="header-subtitle">
+                        <span class="status-dot"></span>
+                        <span>Offline Engine Active</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="icon-btn" onclick="toggleSettings()" title="Settings">⚙️</button>
+            </div>
+        </div>
+
+        <!-- Chat History -->
+        <div id="chat-container">
+            <div class="message-wrapper ai">
+                <div class="message-card">
+                    <div class="message-bubble">Hello! 👋 I am **KeyGen.ai**, your local cognitive engine. Ask me anything! I support natural language queries, math expressions, unit conversions, and web research fallbacks.</div>
+                    <div class="message-meta">
+                        <span>Just now</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Suggestions Chips -->
+        <div class="suggestions-container">
+            <span class="suggestion-chip" onclick="useSuggestion(this)">what is 25 * (12 + 8) / 4</span>
+            <span class="suggestion-chip" onclick="useSuggestion(this)">convert 98.6 fahrenheit to celsius</span>
+            <span class="suggestion-chip" onclick="useSuggestion(this)">who is Alan Turing?</span>
+            <span class="suggestion-chip" onclick="useSuggestion(this)">what time is it now?</span>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-container">
+            <div class="input-wrapper">
+                <input type="text" id="input" placeholder="Ask anything..." autocomplete="off" autofocus>
+                <button class="voice-input-btn" id="voiceBtn" onclick="toggleListening()" title="Speak to write">🎤</button>
+            </div>
+            <button class="btn send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+            <button class="btn stop-btn" id="stopBtn" onclick="stopGeneration()">■</button>
+        </div>
+
+        <!-- Settings overlay drawer -->
+        <div class="settings-overlay" id="settingsOverlay">
+            <div class="settings-panel">
+                <div class="settings-title">
+                    <span>Engine Settings</span>
+                    <button class="icon-btn" onclick="toggleSettings()">✕</button>
+                </div>
+                
+                <hr style="border: 0; border-top: 1px solid var(--panel-border);">
+
+                <div class="settings-item">
+                    <label for="themeSelect">Color Interface Mode</label>
+                    <select id="themeSelect" onchange="changeTheme(this.value)" style="padding: 10px; border-radius: 8px; background: var(--input-bg); border: 1px solid var(--panel-border); color: var(--text-primary); outline: none;">
+                        <option value="dark">Vibrant Dark Mode</option>
+                        <option value="light">Crisp Light Mode</option>
+                    </select>
+                </div>
+
+                <div class="settings-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                    <label for="soundEffects">Sound Micro-Feedback</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="soundEffects" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                    <label for="speechSynthesisToggle">Voice Auto-Read (TTS)</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="speechSynthesisToggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="info-alert">
+                    🤖 <strong>Privacy Confirmed:</strong> KeyGen.ai is running locally on your computer. Calculations, Conversational Memory, and Speech processing remain entirely private and local.
+                </div>
+
+                <button class="btn" onclick="clearChat()" style="background: #ef4444; font-size: 14.5px; width: 100%; height: 42px;">Clear Conversation Cache</button>
+            </div>
+        </div>
     </div>
-    <div id="input-container">
-        <input type="text" id="user-input" placeholder="Type your query here..." autofocus>
-        <button onclick="sendMessage()">Send</button>
-    </div>
 
-    <script>
-        const input = document.getElementById('user-input');
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
-
-        async function sendMessage() {
-            const text = input.value.trim();
-            if (!text) return;
-
-            appendMessage(text, 'user');
-            input.value = '';
-
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
-                });
-                const data = await response.json();
-                appendMessage(data.response, 'bot');
-            } catch (error) {
-                appendMessage("Error: Could not connect to KeyGen.ai backend.", 'bot');
-            }
-        }
-
-        function appendMessage(text, side) {
-            const container = document.getElementById('chat-container');
-            const div = document.createElement('div');
-            div.className = `message ${side}`;
-            div.innerText = text;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-    </script>
+    <script src="index.js"></script>
 </body>
 </html>

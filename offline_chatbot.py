@@ -8,6 +8,9 @@ import urllib.parse
 import urllib.error
 import hashlib
 import time
+import math
+import ast
+import operator as op
 from collections import defaultdict
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -17,23 +20,176 @@ try:
 except ImportError:
     TEXTBLOB_AVAILABLE = False
 
+# ==========================================
+# SAFE MATHEMATICAL EVALUATOR
+# ==========================================
+class SafeMathEvaluator:
+    operators = {
+        ast.Add: op.add,
+        ast.Sub: op.sub,
+        ast.Mult: op.mul,
+        ast.Div: op.truediv,
+        ast.Pow: op.pow,
+        ast.USub: op.neg,
+        ast.UAdd: lambda x: x
+    }
+    
+    functions = {
+        'sqrt': math.sqrt,
+        'sin': math.sin,
+        'cos': math.cos,
+        'tan': math.tan,
+        'log': math.log,
+        'log10': math.log10,
+        'abs': abs,
+        'pow': pow,
+        'pi': math.pi,
+        'e': math.e
+    }
+
+    def eval_node(self, node):
+        if isinstance(node, ast.Num):
+            return node.n
+        elif isinstance(node, ast.BinOp):
+            return self.operators[type(node.op)](self.eval_node(node.left), self.eval_node(node.right))
+        elif isinstance(node, ast.UnaryOp):
+            return self.operators[type(node.op)](self.eval_node(node.operand))
+        elif isinstance(node, ast.Call):
+            func_name = node.func.id
+            if func_name in self.functions:
+                args = [self.eval_node(arg) for arg in node.args]
+                return self.functions[func_name](*args)
+            raise ValueError(f"Function {func_name} is not supported")
+        elif isinstance(node, ast.Name):
+            if node.id in self.functions:
+                return self.functions[node.id]
+            raise ValueError(f"Constant {node.id} is not supported")
+        else:
+            raise TypeError(f"Unsupported AST node: {type(node).__name__}")
+
+    def evaluate(self, expr_str):
+        expr_str = expr_str.replace('^', '**')
+        try:
+            tree = ast.parse(expr_str, mode='eval')
+            return self.eval_node(tree.body)
+        except:
+            return None
+
+# ==========================================
+# TF-IDF & COSINE SIMILARITY ENGINE (PURE PYTHON)
+# ==========================================
+class SimpleTFIDF:
+    def __init__(self, stopwords=None):
+        self.stopwords = stopwords or set()
+        self.vocab = set()
+        self.idf = {}
+        self.docs = []
+
+    def tokenize(self, text):
+        if not text:
+            return []
+        # Strip punctuation and keep alphanumeric words
+        words = re.findall(r'\b\w+\b', text.lower())
+        return [w for w in words if w not in self.stopwords]
+
+    def fit_docs(self, docs_input):
+        self.vocab = set()
+        self.docs = []
+        self.idf = {}
+        
+        # Count Document Frequency (DF)
+        df_counts = defaultdict(int)
+        temp_docs = []
+        
+        for text, payload in docs_input:
+            tokens = self.tokenize(text)
+            if not tokens:
+                continue
+            unique_tokens = set(tokens)
+            for t in unique_tokens:
+                df_counts[t] += 1
+            temp_docs.append({'text': text, 'tokens': tokens, 'payload': payload})
+            
+        total_docs = len(temp_docs)
+        if total_docs == 0:
+            return
+            
+        # Compute Inverse Document Frequency (IDF) with smoothing
+        for term, df in df_counts.items():
+            self.idf[term] = math.log((1 + total_docs) / (1 + df)) + 1
+            self.vocab.add(term)
+            
+        # Compute normalized TF-IDF vectors
+        for doc in temp_docs:
+            tokens = doc['tokens']
+            tf = defaultdict(int)
+            for t in tokens:
+                tf[t] += 1
+                
+            vector = {}
+            for t, count in tf.items():
+                vector[t] = count * self.idf.get(t, 0.0)
+                
+            sq_sum = sum(w * w for w in vector.values())
+            norm = math.sqrt(sq_sum) if sq_sum > 0 else 1.0
+            normalized_vector = {t: w / norm for t, w in vector.items()}
+            
+            self.docs.append({
+                'text': doc['text'],
+                'vector': normalized_vector,
+                'payload': doc['payload']
+            })
+
+    def query(self, query_text):
+        query_tokens = self.tokenize(query_text)
+        if not query_tokens:
+            return None, 0.0
+            
+        query_tf = defaultdict(int)
+        for t in query_tokens:
+            query_tf[t] += 1
+            
+        query_vector = {}
+        for t, count in query_tf.items():
+            if t in self.idf:
+                query_vector[t] = count * self.idf[t]
+                
+        sq_sum = sum(w * w for w in query_vector.values())
+        if sq_sum == 0:
+            return None, 0.0
+        query_norm = math.sqrt(sq_sum)
+        normalized_query = {t: w / query_norm for t, w in query_vector.items()}
+        
+        best_doc = None
+        best_score = 0.0
+        
+        for doc in self.docs:
+            doc_vector = doc['vector']
+            score = sum(normalized_query[t] * doc_vector[t] for t in normalized_query if t in doc_vector)
+            if score > best_score:
+                best_score = score
+                best_doc = doc
+                
+        return best_doc, best_score
+
+# ==========================================
+# COGNITIVE ENGINE (MAIN LOGIC)
+# ==========================================
 class KeyGenAI:
-    def __init__(self, knowledge_dir="knowledge", data_file="data.json", gk_file="gk_knowledge.json"):
+    def __init__(self, data_file="data.json", gk_file="gk_knowledge.json"):
         self.name = "KeyGen.ai"
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.knowledge_dir = os.path.join(self.script_dir, knowledge_dir)
         self.data_file = os.path.join(self.script_dir, data_file)
         self.gk_file = os.path.join(self.script_dir, gk_file)
+        
+        # Persistent context directory
+        self.knowledge_dir = os.path.join(self.script_dir, "knowledge")
+        os.makedirs(self.knowledge_dir, exist_ok=True)
         
         self.user_mem_file = os.path.join(self.knowledge_dir, "user_mem.txt")
         self.verified_web_file = os.path.join(self.knowledge_dir, "verified_web.txt")
         self.search_cache_file = os.path.join(self.knowledge_dir, "search_cache.json")
         
-        self.raw_data_chunks = []
-        self.markov_graph = defaultdict(list)
-        self.knowledge_base = []
-        self.gk_base = []
-        self.search_cache = {}
         self.stopwords = {"a", "an", "the", "and", "or", "but", "is", "are", "was", "were", 
                          "to", "at", "by", "for", "of", "with", "in", "on", "that", "this",
                          "it", "its", "be", "been", "being", "have", "has", "had", "do", "does",
@@ -41,34 +197,34 @@ class KeyGenAI:
         
         self.greetings = {
             "patterns": ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", 
-                        "howdy", "greetings", "sup", "what's up", "yo", "hola", "bonjour",
-                        "heya", "heyy", "hii", "helloo", "morning", "evening"],
+                        "howdy", "greetings", "sup", "what's up", "yo", "hola", "heya"],
             "responses": [
                 "Hello! 👋 How can I help you today?",
                 "Hi there! 😊 What would you like to know?",
                 "Hey! ✨ Ask me anything!",
-                "Greetings! 🌟 How can I assist you?",
-                "Hello! 🚀 What can I help you with?",
-                "Hi! 💫 What's on your mind?",
-                "Hey there! 🎯 Feel free to ask me anything!",
-                "Welcome! 🤖 How can I help?"
+                "Greetings! 🌟 How can I assist you?"
             ]
-        }
-        
-        self.emotions = {
-            "happy": ["Glad you're feeling good! 😊", "That's wonderful! 🎉"],
-            "sad": ["I'm here to help. 💙", "I understand. 🤗"],
-            "angry": ["Let's work through this together. 🤝", "I hear you."],
-            "lonely": ["I'm always here to talk. 💭", "You're not alone. 🌟"]
         }
         
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
         
-        os.makedirs(self.knowledge_dir, exist_ok=True)
+        # Engines and memory initialization
+        self.math_evaluator = SafeMathEvaluator()
+        self.tfidf_engine = SimpleTFIDF(self.stopwords)
+        
+        self.search_cache = {}
+        self.active_entity = None  # Conversation context memory
+        self.chat_history = []
+        
         self.load_all_data()
         self.load_search_cache()
+
+    def tokenize(self, text):
+        if not text:
+            return []
+        return re.findall(r'\b\w+\b', str(text).lower())
 
     def load_search_cache(self):
         try:
@@ -88,98 +244,267 @@ class KeyGenAI:
         except:
             pass
 
-    def tokenize(self, text):
-        if not text:
-            return []
-        return re.findall(r'\b\w+\b', str(text).lower())
+    def load_all_data(self):
+        # 1. Load data.json
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r', encoding='utf-8') as f:
+                    self.knowledge_base = json.load(f)
+            else:
+                self.knowledge_base = []
+        except Exception as e:
+            print(f"Error loading {self.data_file}: {e}")
+            self.knowledge_base = []
+            
+        # 2. Load gk_knowledge.json
+        try:
+            if os.path.exists(self.gk_file):
+                with open(self.gk_file, 'r', encoding='utf-8') as f:
+                    self.gk_base = json.load(f)
+            else:
+                self.gk_base = []
+        except Exception as e:
+            print(f"Error loading {self.gk_file}: {e}")
+            self.gk_base = []
 
-    def build_markov(self, tokens):
-        if not tokens or len(tokens) < 2:
-            return
-        for i in range(len(tokens) - 1):
-            if tokens[i] and tokens[i+1]:
-                self.markov_graph[tokens[i]].append(tokens[i+1])
+        # 3. Load rules.json and merge into knowledge_base
+        rules_path = os.path.join(self.script_dir, "rules.json")
+        try:
+            if os.path.exists(rules_path):
+                with open(rules_path, 'r', encoding='utf-8') as f:
+                    rules_data = json.load(f)
+                    for r in rules_data:
+                        if not any(k.get('id') == r.get('id') for k in self.knowledge_base):
+                            self.knowledge_base.append(r)
+        except Exception as e:
+            print(f"Error loading rules.json: {e}")
 
-    def is_greeting(self, text):
-        text_lower = text.lower().strip().rstrip('!.,? ')
-        if len(text_lower.split()) <= 2 and any(g in text_lower for g in ["hi", "hey", "hello", "yo"]):
-            return True
-        for pattern in self.greetings["patterns"]:
-            if text_lower == pattern or text_lower.startswith(pattern):
-                return True
-        return False
+        # Fit documents into TF-IDF index
+        docs_input = []
+        
+        # Ingest General Knowledge
+        for fact in self.gk_base:
+            q = fact.get("q", "")
+            if q:
+                docs_input.append((q, {
+                    "type": "gk",
+                    "answer": fact.get("a", ""),
+                    "subject": q
+                }))
+                
+        # Ingest Rules/Patterns
+        for module in self.knowledge_base:
+            patterns = module.get("patterns", [])
+            responses = module.get("responses", [])
+            module_id = module.get("id", "generic")
+            if patterns and responses:
+                for pattern in patterns:
+                    docs_input.append((pattern, {
+                        "type": "rule",
+                        "responses": responses,
+                        "subject": module_id
+                    }))
 
-    def get_greeting_response(self):
-        return random.choice(self.greetings["responses"])
+        # Ingest Long-Term Memories
+        if os.path.exists(self.user_mem_file):
+            try:
+                with open(self.user_mem_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if len(line) > 10:
+                            docs_input.append((line, {
+                                "type": "memory",
+                                "answer": line,
+                                "subject": line
+                            }))
+            except Exception as e:
+                print(f"Error loading memory: {e}")
+                
+        self.tfidf_engine.fit_docs(docs_input)
+        print(f"Index successfully prepared with {len(docs_input)} items.")
 
-    def get_emotion_prefix(self, text):
-        if not text:
-            return ""
-        text_lower = text.lower()
-        for emotion, responses in self.emotions.items():
-            if emotion in text_lower:
-                return random.choice(responses) + " "
-        return ""
+    # Fuzzy String match correction (Levenshtein Distance)
+    def levenshtein_distance(self, s1, s2):
+        if len(s1) < len(s2):
+            return self.levenshtein_distance(s2, s1)
+        if len(s2) == 0:
+            return len(s1)
+        
+        previous_row = range(len(s2) + 1)
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+            
+        return previous_row[-1]
 
-    def grammar_checker(self, text):
-        if not text or not isinstance(text, str):
-            return ""
-        text = text.strip()
-        if not text:
-            return ""
-        if len(text) > 1:
-            text = text[0].upper() + text[1:]
-        if text[-1] not in ".!?:\"'":
-            text += "."
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'\bi\b(?![\'\.])', 'I', text)
-        return text
+    def autocorrect_query(self, query):
+        tokens = self.tokenize(query)
+        corrected_tokens = []
+        for token in tokens:
+            if token in self.stopwords or token in self.tfidf_engine.vocab:
+                corrected_tokens.append(token)
+            else:
+                # Attempt to find close matches in the vocabulary
+                best_match = None
+                best_dist = 999
+                for word in self.tfidf_engine.vocab:
+                    if abs(len(token) - len(word)) <= 1:
+                        dist = self.levenshtein_distance(token, word)
+                        if dist < best_dist and dist <= 1:  # 1-char spelling error correction
+                            best_dist = dist
+                            best_match = word
+                corrected_tokens.append(best_match if best_match else token)
+        return " ".join(corrected_tokens)
 
-    def summarize_text(self, text, max_sentences=3):
-        """Summarize text to key points only"""
-        if not text:
-            return text
+    # Conversational memory resolution
+    def resolve_pronouns(self, query):
+        if not self.active_entity:
+            return query
         
-        # Split into sentences
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        pronouns = [
+            (r'\bhe\b', self.active_entity),
+            (r'\bshe\b', self.active_entity),
+            (r'\bit\b', self.active_entity),
+            (r'\bits\b', f"{self.active_entity}'s"),
+            (r'\bthey\b', self.active_entity),
+            (r'\bhim\b', self.active_entity),
+            (r'\bher\b', self.active_entity),
+            (r'\bthem\b', self.active_entity)
+        ]
         
-        # If already short, return as is
-        if len(sentences) <= max_sentences:
-            return text
-        
-        # Score sentences by relevance (keyword density)
-        words = self.tokenize(text)
-        keywords = [w for w in words if w not in self.stopwords and len(w) > 3]
-        
-        scored_sentences = []
-        for sentence in sentences:
-            score = sum(1 for kw in keywords if kw.lower() in sentence.lower())
-            scored_sentences.append((score, sentence))
-        
-        # Sort by score and take top sentences
-        scored_sentences.sort(reverse=True, key=lambda x: x[0])
-        top_sentences = [s for _, s in scored_sentences[:max_sentences]]
-        
-        # Keep original order
-        ordered = [s for s in sentences if s in top_sentences]
-        
-        return ' '.join(ordered) if ordered else ' '.join(sentences[:max_sentences])
+        resolved_query = query
+        for pattern, replacement in pronouns:
+            resolved_query = re.sub(pattern, replacement, resolved_query, flags=re.IGNORECASE)
+        return resolved_query
 
-    def truncate_answer(self, text, max_chars=500):
-        """Truncate long answers"""
-        if len(text) <= max_chars:
-            return text
+    def extract_active_entity(self, query):
+        # Noun phrase parsing with TextBlob if available
+        if TEXTBLOB_AVAILABLE:
+            try:
+                blob = TextBlob(query)
+                nps = blob.noun_phrases
+                if nps:
+                    self.active_entity = nps[-1]
+                    return
+            except:
+                pass
         
-        # Try to truncate at sentence boundary
-        truncated = text[:max_chars]
-        last_period = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
-        
-        if last_period > max_chars * 0.5:
-            return truncated[:last_period + 1]
-        else:
-            return truncated.rsplit(' ', 1)[0] + "..."
+        # Fallback proper noun / vocabulary matcher
+        words = query.split()
+        if len(words) > 1:
+            for w in words[1:]:
+                clean_w = w.strip('?,.!').lower()
+                if w[0].isupper() and clean_w not in self.stopwords and clean_w in self.tfidf_engine.vocab:
+                    self.active_entity = clean_w
+                    return
 
-    def make_http_request(self, url, timeout=10):
+    # Tools: Math, Unit Converter, Date-Time
+    def try_eval_math(self, query):
+        clean_query = query.lower().strip().rstrip('?').replace('x', '*')
+        math_prefixes = ["calculate", "evaluate", "what is", "solve"]
+        for p in math_prefixes:
+            if clean_query.startswith(p):
+                clean_query = clean_query[len(p):].strip()
+                break
+                
+        if any(c in clean_query for c in ['+', '-', '*', '/', '^', '%']) or any(f in clean_query for f in ['sqrt', 'sin', 'cos', 'log']):
+            expr = re.sub(r'[^0-9a-zA-Z\+\-\*\/\(\)\.\^\s\,\%]', '', clean_query)
+            val = self.math_evaluator.evaluate(expr)
+            if val is not None:
+                if isinstance(val, float) and val.is_integer():
+                    val = int(val)
+                return f"Math Calculation:\n```math\n{expr} = {val}\n```"
+        return None
+
+    def try_unit_conversion(self, query):
+        query = query.lower().strip()
+        pattern = r'(?:convert\s+)?([\d\.]+)\s*([a-zA-Z_°]+)\s+(?:to|in)\s+([a-zA-Z_°]+)'
+        match = re.search(pattern, query)
+        if not match:
+            return None
+            
+        value_str, from_unit, to_unit = match.groups()
+        try:
+            value = float(value_str)
+        except ValueError:
+            return None
+            
+        from_unit = from_unit.strip().lower()
+        to_unit = to_unit.strip().lower()
+        
+        conversions = {
+            # Temperature
+            ('c', 'f'): lambda v: (v * 9/5) + 32,
+            ('f', 'c'): lambda v: (v - 32) * 5/9,
+            ('c', 'k'): lambda v: v + 273.15,
+            ('k', 'c'): lambda v: v - 273.15,
+            
+            # Length
+            ('km', 'miles'): lambda v: v * 0.621371,
+            ('miles', 'km'): lambda v: v / 0.621371,
+            ('m', 'feet'): lambda v: v * 3.28084,
+            ('feet', 'm'): lambda v: v / 3.28084,
+            ('cm', 'inches'): lambda v: v * 0.393701,
+            ('inches', 'cm'): lambda v: v / 0.393701,
+            
+            # Weight
+            ('kg', 'lbs'): lambda v: v * 2.20462,
+            ('lbs', 'kg'): lambda v: v / 2.20462,
+            ('g', 'oz'): lambda v: v * 0.035274,
+            ('oz', 'g'): lambda v: v / 0.035274
+        }
+        
+        aliases = {
+            'celsius': 'c', 'centigrade': 'c', '°c': 'c', 'c': 'c',
+            'fahrenheit': 'f', '°f': 'f', 'f': 'f',
+            'kelvin': 'k', 'k': 'k',
+            'kilometer': 'km', 'kilometers': 'km', 'km': 'km',
+            'mile': 'miles', 'miles': 'miles',
+            'meter': 'm', 'meters': 'm', 'm': 'm',
+            'foot': 'feet', 'feet': 'feet', 'ft': 'feet',
+            'centimeter': 'cm', 'centimeters': 'cm', 'cm': 'cm',
+            'inch': 'inches', 'inches': 'inches', 'in': 'inches',
+            'kilogram': 'kg', 'kilograms': 'kg', 'kg': 'kg',
+            'pound': 'lbs', 'pounds': 'lbs', 'lb': 'lbs', 'lbs': 'lbs',
+            'gram': 'g', 'grams': 'g', 'g': 'g',
+            'ounce': 'oz', 'ounces': 'oz', 'oz': 'oz'
+        }
+        
+        norm_from = aliases.get(from_unit, from_unit)
+        norm_to = aliases.get(to_unit, to_unit)
+        
+        if (norm_from, norm_to) in conversions:
+            res = conversions[(norm_from, norm_to)](value)
+            return f"Unit Conversion:\n```text\n{value} {from_unit} = {res:.4f} {to_unit}\n```"
+        return None
+
+    def try_date_time(self, query):
+        query = query.lower().strip()
+        time_keywords = ["what time is it", "current time", "what's the time", "tell me the time", "time now"]
+        date_keywords = ["what is the date", "what's the date", "today's date", "current date", "what date is it", "tell me the date"]
+        day_keywords = ["what day is it", "what day of the week", "today's day", "day is today"]
+        year_keywords = ["what year is it", "current year"]
+        
+        import datetime
+        now = datetime.datetime.now()
+        
+        if any(kw in query for kw in time_keywords):
+            return f"The current time is **{now.strftime('%I:%M %p')}**."
+        if any(kw in query for kw in date_keywords):
+            return f"Today's date is **{now.strftime('%A, %B %d, %Y')}**."
+        if any(kw in query for kw in day_keywords):
+            return f"Today is **{now.strftime('%A')}**."
+        if any(kw in query for kw in year_keywords):
+            return f"The current year is **{now.strftime('%Y')}**."
+        return None
+
+    # Internet scrapers
+    def make_http_request(self, url, timeout=8):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -194,87 +519,54 @@ class KeyGenAI:
     def google_search(self, query):
         if not query:
             return None
-        
         cache_key = hashlib.md5(query.lower().encode()).hexdigest()
         if cache_key in self.search_cache:
             cache_entry = self.search_cache[cache_key]
-            if time.time() - cache_entry['timestamp'] < 3600:
+            if time.time() - cache_entry['timestamp'] < 86400:  # Cache for 1 day
                 return cache_entry['data']
         
-        engines = [
-            {
-                "name": "Google",
-                "url": f"https://www.google.com/search?q={urllib.parse.quote(query)}",
-                "parser": self._parse_generic
-            },
-            {
-                "name": "DuckDuckGo",
-                "url": f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}",
-                "parser": self._parse_generic
-            }
-        ]
-        
-        for engine in engines:
-            try:
-                html = self.make_http_request(engine['url'], timeout=8)
-                if html:
-                    results = engine['parser'](html)
-                    if results:
-                        best = self._select_best_result(results)
-                        if best and len(best) > 50:
-                            self.search_cache[cache_key] = {'data': best, 'timestamp': time.time()}
-                            self.save_search_cache()
-                            return self.polish_and_save_web_data(best)
-            except:
-                continue
-        
+        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        try:
+            html = self.make_http_request(url, timeout=8)
+            if html:
+                # Extraction matching standard classes
+                matches = re.findall(r'<a class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL)
+                results = []
+                for m in matches:
+                    clean = re.sub(r'<.*?>', '', m)
+                    clean = re.sub(r'\s+', ' ', clean).strip()
+                    if len(clean) > 40:
+                        results.append(clean)
+                
+                if results:
+                    best = results[0]
+                    self.search_cache[cache_key] = {'data': best, 'timestamp': time.time()}
+                    self.save_search_cache()
+                    self.polish_and_save_web_data(best)
+                    return best
+        except:
+            pass
         return self._search_wikipedia(query)
-
-    def _parse_generic(self, html):
-        results = []
-        patterns = [
-            r'<p[^>]*>(.*?)</p>',
-            r'<div[^>]*class="[^"]*(?:result|snippet|abstract)[^"]*"[^>]*>(.*?)</div>',
-            r'<span[^>]*class="[^"]*(?:st|snippet)[^"]*"[^>]*>(.*?)</span>',
-        ]
-        for pattern in patterns:
-            matches = re.findall(pattern, html, re.DOTALL)
-            for match in matches:
-                clean = re.sub(r'<.*?>', '', match)
-                clean = re.sub(r'\s+', ' ', clean).strip()
-                if 50 < len(clean) < 2000:
-                    results.append(clean)
-        return results
-
-    def _select_best_result(self, results):
-        if not results:
-            return None
-        scored = []
-        for r in results:
-            score = len(r) / 100 + len(re.findall(r'[.!?]', r)) * 3
-            scored.append((score, r))
-        scored.sort(reverse=True)
-        return scored[0][1] if scored else None
 
     def _search_wikipedia(self, query):
         try:
             api_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(query)}&format=json&srlimit=1"
-            req = urllib.request.Request(api_url, headers={'User-Agent': 'KeyGenAI/1.0'})
-            with urllib.request.urlopen(req, timeout=10, context=self.ssl_context) as response:
+            req = urllib.request.Request(api_url, headers={'User-Agent': 'KeyGenAI/2.0'})
+            with urllib.request.urlopen(req, timeout=8, context=self.ssl_context) as response:
                 data = json.loads(response.read().decode('utf-8'))
             
             if data.get('query', {}).get('search'):
                 page_id = data['query']['search'][0]['pageid']
                 extract_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&pageids={page_id}&format=json"
-                req = urllib.request.Request(extract_url, headers={'User-Agent': 'KeyGenAI/1.0'})
-                with urllib.request.urlopen(req, timeout=10, context=self.ssl_context) as response:
+                req = urllib.request.Request(extract_url, headers={'User-Agent': 'KeyGenAI/2.0'})
+                with urllib.request.urlopen(req, timeout=8, context=self.ssl_context) as response:
                     extract_data = json.loads(response.read().decode('utf-8'))
                 
                 pages = extract_data.get('query', {}).get('pages', {})
                 for pid, page_data in pages.items():
                     extract = page_data.get('extract', '')
                     if extract:
-                        return self.polish_and_save_web_data(extract[:1000])
+                        return self.polish_and_save_web_data(extract[:800])
         except:
             pass
         return None
@@ -291,735 +583,112 @@ class KeyGenAI:
             try:
                 with open(self.verified_web_file, 'a', encoding='utf-8') as f:
                     f.write(clean + "\n\n")
-                self.raw_data_chunks.append(clean)
             except:
                 pass
         return clean
 
-    def calculate_relevance_score(self, question, text):
-        if not question or not text:
-            return 0
-        q_words = set(self.tokenize(question))
-        t_words = set(self.tokenize(text))
-        if not q_words:
-            return 0
-        intersection = len(q_words.intersection(t_words))
-        union = len(q_words.union(t_words))
-        return intersection / union if union > 0 else 0
-
-    def search_local_knowledge(self, query):
-        if not query:
-            return None, 0
-        tokens = self.tokenize(query)
-        keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
-        if not keywords:
-            return None, 0
-        
-        best_match = None
-        highest_score = 0
-        for sentence in self.raw_data_chunks:
-            score = self.calculate_relevance_score(query, sentence)
-            keyword_matches = sum(1 for kw in keywords if kw in sentence.lower())
-            score += keyword_matches * 0.1
-            if score > highest_score:
-                highest_score = score
-                best_match = sentence
-        
-        return best_match, highest_score
-
-    def get_answer_with_fallback(self, question):
-        if not question:
-            return None, "unknown"
-        
-        # Check GK Base
-        for fact in self.gk_base:
-            if fact.get("q", "").lower() in question.lower():
-                return self.truncate_answer(fact["a"]), "knowledge_base"
-        
-        # Check Knowledge Modules
-        for module in self.knowledge_base:
-            for pattern in module.get("patterns", []):
-                if pattern.lower() in question.lower():
-                    return self.truncate_answer(random.choice(module["responses"])), "knowledge_base"
-        
-        # Check local knowledge
-        local_result, confidence = self.search_local_knowledge(question)
-        if local_result and confidence > 0.3 and len(local_result) > 50:
-            return self.truncate_answer(local_result), "local"
-        
-        # Search internet
-        web_result = self.google_search(question)
-        if web_result:
-            # Summarize and truncate
-            summarized = self.summarize_text(web_result, max_sentences=3)
-            return self.truncate_answer(summarized), "internet"
-        
-        # Wikipedia fallback
-        wiki_result = self._search_wikipedia(question)
-        if wiki_result:
-            summarized = self.summarize_text(wiki_result, max_sentences=3)
-            return self.truncate_answer(summarized), "wikipedia"
-        
-        return None, "unknown"
-
-    def _format_answer(self, question, content, source):
-        question_lower = question.lower().strip()
-        
-        # Shorter, more direct prefixes
-        if question_lower.startswith("what"):
-            prefix = ""
-        elif question_lower.startswith("why"):
-            prefix = "Because "
-        elif question_lower.startswith("how"):
-            prefix = ""
-        elif question_lower.startswith("where"):
-            prefix = ""
-        elif question_lower.startswith("when"):
-            prefix = ""
-        elif question_lower.startswith("who"):
-            prefix = ""
-        else:
-            prefix = ""
-        
-        # Don't add source attribution to keep it concise
-        return f"{prefix}{content}"
-
     def learn_from_user(self, text):
-        if not text or len(text.split()) < 8 or "?" in text:
+        if not text or len(text.split()) < 7 or "?" in text:
             return False
         factual_patterns = [" is ", " was ", " are ", " were ", " has ", " have "]
         if any(pattern in text.lower() for pattern in factual_patterns):
             try:
                 with open(self.user_mem_file, 'a', encoding='utf-8') as f:
                     f.write(text.strip() + ".\n")
-                self.raw_data_chunks.append(text.strip())
+                # Reload to put it in TF-IDF index
+                self.load_all_data()
                 return True
             except:
                 pass
         return False
 
-    def load_all_data(self):
-        json_files = [(self.data_file, 'knowledge_base'), (self.gk_file, 'gk_base')]
-        for file_path, attr_name in json_files:
-            try:
-                if os.path.exists(file_path):
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        setattr(self, attr_name, json.load(f))
-                else:
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        json.dump([], f)
-                    setattr(self, attr_name, [])
-            except:
-                setattr(self, attr_name, [])
-        
-        all_tokens = []
-        if os.path.exists(self.knowledge_dir):
-            for filename in os.listdir(self.knowledge_dir):
-                if filename.endswith(".txt"):
-                    filepath = os.path.join(self.knowledge_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                            text = f.read()
-                            if text.strip():
-                                sentences = re.split(r'(?<=[.!?])\s+', text)
-                                self.raw_data_chunks.extend([s.strip() for s in sentences if len(s) > 10])
-                                all_tokens.extend(self.tokenize(text))
-                    except:
-                        pass
-        if all_tokens:
-            self.build_markov(all_tokens)
-
     def get_response(self, user_input):
         if not user_input or not user_input.strip():
             return "Please ask me something! 😊"
-        
-        raw_input = user_input.strip()
-        raw_input_lower = raw_input.lower()
-        
-        # Greetings
-        if self.is_greeting(raw_input):
-            return self.get_greeting_response()
-        
-        # Emotion
-        emotion_prefix = self.get_emotion_prefix(raw_input_lower)
-        
-        # Learn
-        self.learn_from_user(user_input)
-        
-        # Learn about command
-        if raw_input_lower.startswith("learn about "):
-            topic = raw_input[12:].strip()
-            result = self.google_search(topic)
-            if result:
-                summarized = self.summarize_text(result, max_sentences=2)
-                return self.truncate_answer(f"Learned about {topic}: {summarized}", 400)
-            return f"Couldn't find information about '{topic}'."
-        
-        # Questions
-        is_question = ("?" in raw_input or 
-                      raw_input_lower.startswith(("what", "why", "how", "where", "when", "who", 
-                                                   "which", "can", "is", "are", "do", "does",
-                                                   "explain", "tell", "describe", "define")))
-        
-        if is_question:
-            answer, source = self.get_answer_with_fallback(raw_input)
-            if answer:
-                formatted = self._format_answer(raw_input, answer, source)
-                return self.truncate_answer(formatted, 500)
-            return "I couldn't find a reliable answer. Try rephrasing your question."
-        
-        # Non-questions
-        tokens = self.tokenize(raw_input_lower)
-        keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
-        
-        if keywords:
-            local_result, confidence = self.search_local_knowledge(raw_input)
-            if local_result and confidence > 0.3 and len(local_result) > 50:
-                return self.truncate_answer(local_result, 400)
             
-            search_result = self.google_search(raw_input)
-            if search_result:
-                summarized = self.summarize_text(search_result, max_sentences=2)
-                return self.truncate_answer(summarized, 400)
+        raw_input = user_input.strip()
         
-        # Emotion only
-        subject_keywords = [t for t in tokens if t not in self.stopwords and t not in self.emotions and len(t) > 3]
-        if emotion_prefix and not subject_keywords and len(tokens) <= 4:
-            return emotion_prefix
+        # 1. Handle Greetings
+        clean_input = raw_input.lower().rstrip('!.,? ')
+        if len(clean_input.split()) <= 2 and any(g == clean_input for g in self.greetings["patterns"]):
+            return random.choice(self.greetings["responses"])
+            
+        # 2. Conversational Memory Pronoun Resolution
+        resolved_input = self.resolve_pronouns(raw_input)
         
-        return "I'm not sure about that. Could you rephrase your question?"
+        # 3. Check for smart tools (use resolved_input so symbols and operators remain intact)
+        math_res = self.try_eval_math(resolved_input)
+        if math_res: return math_res
+        
+        unit_res = self.try_unit_conversion(resolved_input)
+        if unit_res: return unit_res
+        
+        datetime_res = self.try_date_time(resolved_input)
+        if datetime_res: return datetime_res
 
+        # 4. Spelling correction for text queries
+        corrected_input = self.autocorrect_query(resolved_input)
 
+        # 5. Autonomous learning triggers
+        self.learn_from_user(raw_input)
+
+        # 6. Check Semantic Match via TF-IDF (Rules, GK, and Memories)
+        best_doc, score = self.tfidf_engine.query(corrected_input)
+        if best_doc and score > 0.25:
+            payload = best_doc['payload']
+            self.active_entity = payload.get("subject", self.active_entity)
+            
+            if payload["type"] == "gk" or payload["type"] == "memory":
+                return payload["answer"]
+            elif payload["type"] == "rule":
+                return random.choice(payload["responses"])
+
+        # 7. Internet search fallback
+        web_res = self.google_search(corrected_input)
+        if web_res:
+            self.extract_active_entity(corrected_input)
+            return web_res
+
+        return "I'm not sure about that. Could you rephrase your question? Or try checking my calculations!"
+
+# ==========================================
+# WEB SERVER CONTROLLER
+# ==========================================
 class ChatHandler(BaseHTTPRequestHandler):
     bot = None
     
     def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            html = '''
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>KeyGen.ai</title>
-                <style>
-                    :root {
-                        --bg: #000000;
-                        --surface: #0a0a0a;
-                        --surface2: #111111;
-                        --border: #1a1a1a;
-                        --text: #ffffff;
-                        --text-secondary: #888888;
-                        --glow: #ffffff;
-                        --accent: #ffffff;
-                    }
-                    
-                    * {
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }
-                    
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        background: var(--bg);
-                        min-height: 100vh;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        padding: 16px;
-                    }
-                    
-                    .container {
-                        background: var(--surface);
-                        border-radius: 20px;
-                        max-width: 750px;
-                        width: 100%;
-                        overflow: hidden;
-                        border: 1px solid var(--border);
-                        box-shadow: 0 0 30px rgba(255,255,255,0.03), 0 0 60px rgba(255,255,255,0.01);
-                    }
-                    
-                    .header {
-                        padding: 20px 24px;
-                        display: flex;
-                        align-items: center;
-                        gap: 14px;
-                        border-bottom: 1px solid var(--border);
-                        background: var(--surface2);
-                    }
-                    
-                    .header-icon {
-                        width: 42px;
-                        height: 42px;
-                        background: var(--bg);
-                        border-radius: 12px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-size: 22px;
-                        border: 1px solid var(--border);
-                        box-shadow: 0 0 15px rgba(255,255,255,0.05);
-                    }
-                    
-                    .header-text h1 {
-                        color: var(--text);
-                        font-size: 18px;
-                        font-weight: 600;
-                        letter-spacing: -0.3px;
-                    }
-                    
-                    .header-text p {
-                        color: var(--text-secondary);
-                        font-size: 12px;
-                    }
-                    
-                    .status-dot {
-                        width: 6px;
-                        height: 6px;
-                        background: var(--glow);
-                        border-radius: 50%;
-                        display: inline-block;
-                        margin-right: 6px;
-                        box-shadow: 0 0 8px var(--glow);
-                        animation: glow 2s infinite;
-                    }
-                    
-                    @keyframes glow {
-                        0%, 100% { box-shadow: 0 0 8px var(--glow); }
-                        50% { box-shadow: 0 0 16px var(--glow); }
-                    }
-                    
-                    #chat-container {
-                        height: 420px;
-                        overflow-y: auto;
-                        padding: 20px;
-                        background: var(--surface);
-                        scroll-behavior: smooth;
-                    }
-                    
-                    #chat-container::-webkit-scrollbar {
-                        width: 4px;
-                    }
-                    
-                    #chat-container::-webkit-scrollbar-track {
-                        background: transparent;
-                    }
-                    
-                    #chat-container::-webkit-scrollbar-thumb {
-                        background: var(--border);
-                        border-radius: 2px;
-                    }
-                    
-                    .message-wrapper {
-                        display: flex;
-                        margin-bottom: 16px;
-                        animation: slideIn 0.25s ease-out;
-                    }
-                    
-                    @keyframes slideIn {
-                        from { opacity: 0; transform: translateY(8px); }
-                        to { opacity: 1; transform: translateY(0); }
-                    }
-                    
-                    .message-wrapper.user {
-                        justify-content: flex-end;
-                    }
-                    
-                    .message {
-                        max-width: 78%;
-                        padding: 12px 16px;
-                        border-radius: 16px;
-                        position: relative;
-                        line-height: 1.45;
-                        font-size: 14px;
-                        word-wrap: break-word;
-                        white-space: pre-wrap;
-                    }
-                    
-                    .message-wrapper.user .message {
-                        background: var(--text);
-                        color: var(--bg);
-                        border-bottom-right-radius: 4px;
-                        font-weight: 500;
-                    }
-                    
-                    .message-wrapper.ai .message {
-                        background: var(--surface2);
-                        color: var(--text);
-                        border-bottom-left-radius: 4px;
-                        border: 1px solid var(--border);
-                    }
-                    
-                    .message-avatar {
-                        width: 32px;
-                        height: 32px;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-size: 16px;
-                        flex-shrink: 0;
-                        margin: 0 8px;
-                    }
-                    
-                    .message-wrapper.ai .message-avatar {
-                        background: var(--surface2);
-                        border: 1px solid var(--border);
-                    }
-                    
-                    .message-wrapper.user .message-avatar {
-                        background: var(--text);
-                        color: var(--bg);
-                    }
-                    
-                    .typing-indicator {
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                        padding: 12px 16px;
-                        background: var(--surface2);
-                        border-radius: 16px;
-                        border-bottom-left-radius: 4px;
-                        border: 1px solid var(--border);
-                        max-width: 80px;
-                    }
-                    
-                    .typing-dot {
-                        width: 6px;
-                        height: 6px;
-                        background: var(--text-secondary);
-                        border-radius: 50%;
-                        animation: typing 1.4s infinite;
-                    }
-                    
-                    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-                    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-                    
-                    @keyframes typing {
-                        0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
-                        30% { transform: translateY(-6px); opacity: 1; }
-                    }
-                    
-                    .input-container {
-                        padding: 16px 20px;
-                        background: var(--surface2);
-                        border-top: 1px solid var(--border);
-                        display: flex;
-                        gap: 10px;
-                        align-items: center;
-                    }
-                    
-                    #input {
-                        flex: 1;
-                        padding: 12px 16px;
-                        background: var(--surface);
-                        border: 1px solid var(--border);
-                        border-radius: 14px;
-                        color: var(--text);
-                        font-size: 14px;
-                        outline: none;
-                        transition: all 0.2s;
-                    }
-                    
-                    #input:focus {
-                        border-color: var(--text);
-                        box-shadow: 0 0 0 2px rgba(255,255,255,0.05);
-                    }
-                    
-                    #input::placeholder {
-                        color: #444;
-                    }
-                    
-                    .btn {
-                        height: 42px;
-                        border: 1px solid var(--border);
-                        border-radius: 12px;
-                        color: var(--text);
-                        font-size: 14px;
-                        cursor: pointer;
-                        transition: all 0.2s;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        flex-shrink: 0;
-                        background: var(--surface);
-                    }
-                    
-                    .send-btn {
-                        width: 42px;
-                        font-size: 18px;
-                    }
-                    
-                    .send-btn:hover {
-                        background: var(--text);
-                        color: var(--bg);
-                        border-color: var(--text);
-                    }
-                    
-                    .stop-btn {
-                        width: 42px;
-                        font-size: 16px;
-                        display: none;
-                    }
-                    
-                    .stop-btn:hover {
-                        background: #ff3333;
-                        border-color: #ff3333;
-                        color: white;
-                    }
-                    
-                    .stop-btn.active {
-                        display: flex;
-                    }
-                    
-                    .send-btn.hidden {
-                        display: none;
-                    }
-                    
-                    .suggestions {
-                        display: flex;
-                        gap: 8px;
-                        padding: 12px 20px;
-                        flex-wrap: wrap;
-                        background: var(--surface);
-                    }
-                    
-                    .suggestion-chip {
-                        padding: 7px 14px;
-                        background: var(--surface2);
-                        border: 1px solid var(--border);
-                        border-radius: 20px;
-                        color: var(--text-secondary);
-                        font-size: 12px;
-                        cursor: pointer;
-                        transition: all 0.2s;
-                        white-space: nowrap;
-                    }
-                    
-                    .suggestion-chip:hover {
-                        background: var(--text);
-                        color: var(--bg);
-                        border-color: var(--text);
-                    }
-                    
-                    .timestamp {
-                        font-size: 10px;
-                        color: #444;
-                        margin-top: 4px;
-                        padding: 0 8px;
-                    }
-                    
-                    @media (max-width: 600px) {
-                        body { padding: 0; }
-                        .container { border-radius: 0; height: 100vh; display: flex; flex-direction: column; }
-                        #chat-container { flex: 1; height: auto; }
-                        .message { max-width: 85%; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <div class="header-icon">🤖</div>
-                        <div class="header-text">
-                            <h1>KeyGen.ai</h1>
-                            <p><span class="status-dot"></span>Online</p>
-                        </div>
-                    </div>
-                    
-                    <div id="chat-container">
-                        <div class="message-wrapper ai">
-                            <div class="message-avatar">🤖</div>
-                            <div>
-                                <div class="message">Hello! 👋 I'm KeyGen.ai. Ask me anything!</div>
-                                <div class="timestamp">Just now</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="suggestions">
-                        <span class="suggestion-chip" onclick="useSuggestion(this)">What is AI?</span>
-                        <span class="suggestion-chip" onclick="useSuggestion(this)">How does ML work?</span>
-                        <span class="suggestion-chip" onclick="useSuggestion(this)">Quantum computing</span>
-                        <span class="suggestion-chip" onclick="useSuggestion(this)">What is blockchain?</span>
-                    </div>
-                    
-                    <div class="input-container">
-                        <input type="text" id="input" placeholder="Ask anything..." autofocus>
-                        <button class="btn send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
-                        <button class="btn stop-btn" id="stopBtn" onclick="stopGeneration()">■</button>
-                    </div>
-                </div>
-                
-                <script>
-                    const chatContainer = document.getElementById('chat-container');
-                    const input = document.getElementById('input');
-                    const sendBtn = document.getElementById('sendBtn');
-                    const stopBtn = document.getElementById('stopBtn');
-                    
-                    let isGenerating = false;
-                    let abortController = null;
-                    
-                    function getTime() {
-                        return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    }
-                    
-                    function addMessage(text, isUser) {
-                        const wrapper = document.createElement('div');
-                        wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'ai');
-                        
-                        const avatar = document.createElement('div');
-                        avatar.className = 'message-avatar';
-                        avatar.textContent = isUser ? '👤' : '🤖';
-                        
-                        const container = document.createElement('div');
-                        const message = document.createElement('div');
-                        message.className = 'message';
-                        message.textContent = text;
-                        
-                        const timestamp = document.createElement('div');
-                        timestamp.className = 'timestamp';
-                        timestamp.textContent = getTime();
-                        
-                        container.appendChild(message);
-                        container.appendChild(timestamp);
-                        
-                        if (isUser) {
-                            wrapper.appendChild(container);
-                            wrapper.appendChild(avatar);
-                        } else {
-                            wrapper.appendChild(avatar);
-                            wrapper.appendChild(container);
-                        }
-                        
-                        chatContainer.appendChild(wrapper);
-                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                        
-                        return message;
-                    }
-                    
-                    function showTypingIndicator() {
-                        const wrapper = document.createElement('div');
-                        wrapper.className = 'message-wrapper ai';
-                        wrapper.id = 'typing-wrapper';
-                        
-                        const avatar = document.createElement('div');
-                        avatar.className = 'message-avatar';
-                        avatar.textContent = '🤖';
-                        
-                        const indicator = document.createElement('div');
-                        indicator.className = 'typing-indicator';
-                        indicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
-                        
-                        wrapper.appendChild(avatar);
-                        wrapper.appendChild(indicator);
-                        chatContainer.appendChild(wrapper);
-                        chatContainer.scrollTop = chatContainer.scrollHeight;
-                    }
-                    
-                    function removeTypingIndicator() {
-                        const typing = document.getElementById('typing-wrapper');
-                        if (typing) typing.remove();
-                    }
-                    
-                    function setGeneratingState(generating) {
-                        isGenerating = generating;
-                        if (generating) {
-                            sendBtn.classList.add('hidden');
-                            stopBtn.classList.add('active');
-                            input.disabled = true;
-                        } else {
-                            sendBtn.classList.remove('hidden');
-                            stopBtn.classList.remove('active');
-                            input.disabled = false;
-                            input.focus();
-                        }
-                    }
-                    
-                    function stopGeneration() {
-                        if (abortController) {
-                            abortController.abort();
-                            abortController = null;
-                        }
-                        isGenerating = false;
-                        removeTypingIndicator();
-                        setGeneratingState(false);
-                    }
-                    
-                    async function typeWriterEffect(element, text, speed = 12) {
-                        element.textContent = '';
-                        for (let i = 0; i < text.length; i++) {
-                            if (!isGenerating) break;
-                            element.textContent += text.charAt(i);
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            await new Promise(resolve => setTimeout(resolve, speed));
-                        }
-                    }
-                    
-                    async function sendMessage() {
-                        const message = input.value.trim();
-                        if (!message || isGenerating) return;
-                        
-                        addMessage(message, true);
-                        input.value = '';
-                        showTypingIndicator();
-                        setGeneratingState(true);
-                        
-                        abortController = new AbortController();
-                        
-                        try {
-                            const response = await fetch('/chat', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({message: message}),
-                                signal: abortController.signal
-                            });
-                            const data = await response.json();
-                            
-                            removeTypingIndicator();
-                            
-                            if (isGenerating) {
-                                const aiMessage = addMessage('', false);
-                                await typeWriterEffect(aiMessage, data.response, 12);
-                            }
-                        } catch (error) {
-                            if (error.name !== 'AbortError') {
-                                removeTypingIndicator();
-                                addMessage('⚠️ Connection error. Try again.', false);
-                            }
-                        }
-                        
-                        setGeneratingState(false);
-                        abortController = null;
-                    }
-                    
-                    function useSuggestion(chip) {
-                        input.value = chip.textContent;
-                        sendMessage();
-                    }
-                    
-                    input.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            sendMessage();
-                        }
-                    });
-                    
-                    input.focus();
-                </script>
-            </body>
-            </html>
-            '''
-            self.wfile.write(html.encode())
-        elif self.path == '/health':
+        path = self.path
+        # Route requests
+        if path == '/' or path == '/index.html':
+            filepath = os.path.join(os.path.dirname(__file__), 'public', 'index.html')
+            content_type = 'text/html'
+        elif path == '/index.css':
+            filepath = os.path.join(os.path.dirname(__file__), 'public', 'index.css')
+            content_type = 'text/css'
+        elif path == '/index.js':
+            filepath = os.path.join(os.path.dirname(__file__), 'public', 'index.js')
+            content_type = 'application/javascript'
+        elif path == '/health':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({'status': 'healthy'}).encode())
+            return
+        else:
+            self.send_error(404, "File Not Found")
+            return
+            
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-type', content_type)
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error(500, f"Server Error: {str(e)}")
 
     def do_POST(self):
         if self.path == '/chat':
@@ -1057,18 +726,17 @@ def run_server():
     server = HTTPServer(server_address, ChatHandler)
     
     print(f"""
-╔══════════════════════════════════════╗
-║       🤖 KeyGen.ai ONLINE           ║
-║   http://0.0.0.0:{port}              ║
-║   Deep Black + White Glow Theme     ║
-║   Concise Answers + Stop Button     ║
-╚══════════════════════════════════════╝
++----------------------------------------------+
+|                 KeyGen.ai                    |
+|         UPGRADED COGNITIVE SERVER            |
+|         Listening on http://0.0.0.0:{port}   |
++----------------------------------------------+
     """)
     
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\nShutting down server...")
         server.shutdown()
 
 if __name__ == "__main__":
