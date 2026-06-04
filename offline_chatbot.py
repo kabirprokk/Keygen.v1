@@ -37,21 +37,24 @@ class KeyGenAI:
         self.gk_base = []
         self.search_cache = {}
         self.stopwords = {"a", "an", "the", "and", "or", "but", "is", "are", "was", "were", 
-                         "to", "at", "by", "for", "of", "with", "in", "on", "that", "this"}
+                         "to", "at", "by", "for", "of", "with", "in", "on", "that", "this",
+                         "it", "its", "be", "been", "being", "have", "has", "had", "do", "does",
+                         "did", "will", "would", "could", "should", "may", "might", "can", "shall"}
         
         # Enhanced greetings database
         self.greetings = {
             "patterns": ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", 
-                        "howdy", "greetings", "sup", "what's up", "yo", "hola", "bonjour"],
+                        "howdy", "greetings", "sup", "what's up", "yo", "hola", "bonjour",
+                        "heya", "heyy", "hii", "helloo", "morning", "evening"],
             "responses": [
-                "Hello! I'm {name}, your AI assistant. How can I help you today?",
-                "Hi there! I'm {name}. What would you like to know?",
-                "Hey! I'm {name}, ready to assist you. Ask me anything!",
-                "Greetings! I'm {name}. I can search the internet and answer questions. What can I do for you?",
-                "Hello! {name} at your service. How may I help you?",
-                "Hi! Nice to meet you! I'm {name}. What can I help you with?",
-                "Hey there! {name} here. Feel free to ask me anything!",
-                "Welcome! I'm {name}, your intelligent assistant. How can I assist you today?"
+                "Hello! 👋 I'm {name}, your AI assistant. How can I help you today?",
+                "Hi there! 😊 I'm {name}. What would you like to know?",
+                "Hey! ✨ I'm {name}, ready to assist you. Ask me anything!",
+                "Greetings! 🌟 I'm {name}. I can search the internet and answer questions. What can I do for you?",
+                "Hello! 🚀 {name} at your service. How may I help you?",
+                "Hi! Nice to meet you! 💫 I'm {name}. What can I help you with?",
+                "Hey there! 🎯 {name} here. Feel free to ask me anything!",
+                "Welcome! 🤖 I'm {name}, your intelligent assistant. How can I assist you today?"
             ],
             "follow_ups": [
                 " What would you like to learn about?",
@@ -59,15 +62,15 @@ class KeyGenAI:
                 " Ask me anything!",
                 " I can search the internet for you!",
                 " Need help with something?",
-                " What's on your mind?"
+                " What's on your mind today?"
             ]
         }
         
         self.emotions = {
-            "happy": ["I'm delighted to see you're in a good mood!", "That's wonderful news!", "I'm glad you're feeling positive!"],
-            "sad": ["I'm sorry you're feeling this way. I'm here to help.", "I understand. Sometimes things are difficult."],
-            "angry": ["I hear you're frustrated. Let's try to resolve this together.", "I sense some tension."],
-            "lonely": ["I may be a program, but I am always here to talk.", "You're not alone while I'm active."]
+            "happy": ["I'm delighted to see you're in a good mood! 😊", "That's wonderful news! 🎉", "I'm glad you're feeling positive! ✨"],
+            "sad": ["I'm sorry you're feeling this way. I'm here to help. 💙", "I understand. Sometimes things are difficult. 🤗"],
+            "angry": ["I hear you're frustrated. Let's try to resolve this together. 🤝", "I sense some tension. Let's work through this."],
+            "lonely": ["I may be a program, but I am always here to talk. 💭", "You're not alone while I'm active. 🌟"]
         }
         
         # SSL context for HTTPS requests
@@ -117,10 +120,13 @@ class KeyGenAI:
 
     def is_greeting(self, text):
         """Check if input is a greeting"""
-        text_lower = text.lower().strip().rstrip('!.,?')
+        text_lower = text.lower().strip().rstrip('!.,? ')
         for pattern in self.greetings["patterns"]:
             if text_lower == pattern or text_lower.startswith(pattern):
                 return True
+        # Also check if it's just a short greeting-like message
+        if len(text_lower.split()) <= 2 and any(g in text_lower for g in ["hi", "hey", "hello", "yo"]):
+            return True
         return False
 
     def get_greeting_response(self):
@@ -155,7 +161,7 @@ class KeyGenAI:
             text = text.upper()
         
         # Ensure proper ending punctuation
-        if text[-1] not in ".!?:":
+        if text[-1] not in ".!?:\"'" and not text.endswith("..."):
             text += "."
         
         # Remove multiple spaces
@@ -176,8 +182,6 @@ class KeyGenAI:
             return self._basic_rephrase(text, style)
         
         try:
-            blob = TextBlob(text)
-            
             if style == "clean":
                 words = text.split()
                 cleaned = []
@@ -206,10 +210,6 @@ class KeyGenAI:
                 
             else:
                 result = text
-                creative_phrases = ["Interestingly, ", "Notably, ", "Furthermore, "]
-                if len(result.split()) > 5:
-                    insert_pos = len(result) // 3
-                    result = result[:insert_pos] + random.choice(creative_phrases) + result[insert_pos:]
             
             return self.grammar_checker(result)
         except Exception:
@@ -314,6 +314,7 @@ class KeyGenAI:
             r'<div class="BNeawe s3v9rd AP7Wnd">(.*?)</div>',
             r'<span class="st">(.*?)</span>',
             r'<div[^>]*class="[^"]*BNeawe[^"]*"[^>]*>(.*?)</div>',
+            r'<div class="kno-rdesc[^"]*">.*?<span[^>]*>(.*?)</span>',
         ]
         
         for pattern in patterns:
@@ -442,7 +443,7 @@ class KeyGenAI:
         return clean
 
     def calculate_relevance_score(self, question, text):
-        """Enhanced relevance scoring"""
+        """Enhanced relevance scoring with multiple factors"""
         if not question or not text:
             return 0
             
@@ -452,46 +453,103 @@ class KeyGenAI:
         if not question_words:
             return 0
         
+        # Jaccard similarity
         intersection = len(question_words.intersection(text_words))
         union = len(question_words.union(text_words))
         
         if union == 0:
             return 0
-            
-        return intersection / union
-
-    def get_detailed_answer(self, question):
-        """Get detailed answer - ALWAYS searches internet if local data insufficient"""
-        if not question:
-            return None
         
-        # Check local knowledge base first
+        jaccard_score = intersection / union
+        
+        # Bonus for exact phrase matches
+        phrase_bonus = 0
+        question_lower = question.lower()
+        text_lower = text.lower()
+        if question_lower in text_lower:
+            phrase_bonus = 0.3
+        
+        # Bonus for keyword density
+        keyword_density = intersection / len(text_words) if text_words else 0
+        
+        # Combined score
+        final_score = jaccard_score * 0.5 + phrase_bonus * 0.3 + keyword_density * 0.2
+        
+        return final_score
+
+    def search_local_knowledge(self, query):
+        """Search local knowledge base and return best match with confidence score"""
+        if not query:
+            return None, 0
+        
+        tokens = self.tokenize(query)
+        keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
+        
+        if not keywords:
+            return None, 0
+        
         best_match = None
         highest_score = 0
-        best_match_text = ""
         
         for sentence in self.raw_data_chunks:
-            score = self.calculate_relevance_score(question, sentence)
+            score = self.calculate_relevance_score(query, sentence)
+            
+            # Extra weight for sentences containing multiple keywords
+            keyword_matches = sum(1 for kw in keywords if kw in sentence.lower())
+            score += keyword_matches * 0.1
+            
             if score > highest_score:
                 highest_score = score
-                best_match_text = sentence
+                best_match = sentence
         
-        # If local match found and it's substantial
-        if best_match_text and highest_score > 0.3 and len(best_match_text) > 100:
-            return self._format_answer(question, best_match_text, "local")
+        return best_match, highest_score
+
+    def get_answer_with_fallback(self, question):
+        """Smart answer retrieval: Check local first, then internet if needed"""
+        if not question:
+            return None, "unknown"
         
-        # If local answer is poor or non-existent, ALWAYS search internet
-        print("📡 Local knowledge insufficient, searching internet...")
-        search_result = self.google_search(question)
-        if search_result:
-            return self._format_answer(question, search_result, "internet")
+        # Step 1: Check GK Base (Fact Engine) - High priority
+        for fact in self.gk_base:
+            if fact.get("q", "").lower() in question.lower():
+                return fact["a"], "knowledge_base"
         
-        # Try Wikipedia as final fallback
+        # Step 2: Check Knowledge Modules (JSON)
+        for module in self.knowledge_base:
+            for pattern in module.get("patterns", []):
+                if pattern.lower() in question.lower():
+                    return random.choice(module["responses"]), "knowledge_base"
+        
+        # Step 3: Search local text knowledge
+        local_result, confidence = self.search_local_knowledge(question)
+        
+        # If local result is good enough (high confidence and substantial content)
+        if local_result and confidence > 0.3 and len(local_result) > 100:
+            print(f"✓ Found in local knowledge (confidence: {confidence:.2f})")
+            return local_result, "local"
+        
+        # If local result exists but is poor quality
+        if local_result and confidence <= 0.3:
+            print(f"⚠ Local knowledge insufficient (confidence: {confidence:.2f}), searching internet...")
+            web_result = self.google_search(question)
+            if web_result:
+                return web_result, "internet"
+            # Fall back to poor local result if internet fails
+            if len(local_result) > 50:
+                return local_result + "\n\n(Note: This is from limited local knowledge. Internet search failed.)", "local_fallback"
+        
+        # Step 4: No good local result - Search internet
+        print("📡 No local knowledge found, searching internet...")
+        web_result = self.google_search(question)
+        if web_result:
+            return web_result, "internet"
+        
+        # Step 5: Try Wikipedia
         wiki_result = self._search_wikipedia(question)
         if wiki_result:
-            return self._format_answer(question, wiki_result, "wikipedia")
+            return wiki_result, "wikipedia"
         
-        return None
+        return None, "unknown"
 
     def _format_answer(self, question, content, source):
         """Format answer based on question type and source"""
@@ -499,32 +557,34 @@ class KeyGenAI:
         
         # Determine question type
         if question_lower.startswith("what"):
-            prefix = "Here's what I found"
-            if source == "internet":
-                prefix = "According to my internet search, here's what I found"
+            prefix = "📚 Here's what I found"
         elif question_lower.startswith("why"):
-            prefix = "Here's the explanation"
+            prefix = "💡 Here's the explanation"
         elif question_lower.startswith("how"):
-            prefix = "Let me explain how this works"
+            prefix = "🔧 Let me explain how this works"
         elif question_lower.startswith("where"):
-            prefix = "Here's the location information"
+            prefix = "📍 Here's the location information"
         elif question_lower.startswith("when"):
-            prefix = "Here's the timeline"
+            prefix = "⏰ Here's the timeline"
         elif question_lower.startswith("who"):
-            prefix = "Here's who I found"
+            prefix = "👤 Here's who I found"
         elif question_lower.startswith(("which", "can", "is", "are", "do", "does")):
-            prefix = "Based on my research"
+            prefix = "🔍 Based on my research"
         else:
-            prefix = "Here's what I found"
+            prefix = "📖 Here's what I found"
         
         # Format the response
         response = f"{prefix}:\n\n{content}"
         
         # Add source attribution
         if source == "internet":
-            response += "\n\n(Source: Internet search)"
+            response += "\n\n🌐 (Source: Internet search)"
         elif source == "wikipedia":
-            response += "\n\n(Source: Wikipedia)"
+            response += "\n\n📚 (Source: Wikipedia)"
+        elif source == "local":
+            response += "\n\n💾 (Source: Local knowledge base)"
+        elif source == "knowledge_base":
+            response += "\n\n📋 (Source: Knowledge base)"
         
         return response
 
@@ -589,14 +649,14 @@ class KeyGenAI:
         print(f"✓ Knowledge base: {len(self.raw_data_chunks)} sentences loaded")
 
     def get_response(self, user_input):
-        """Main response handler - FIXED and OPTIMIZED"""
+        """Main response handler - OPTIMIZED for local-first, internet-fallback"""
         if not user_input or not user_input.strip():
-            return "Please type something and I'll help you!"
+            return "Please type something and I'll help you! 😊"
         
         raw_input = user_input.strip()
         raw_input_lower = raw_input.lower()
         
-        # 1. CHECK FOR GREETINGS FIRST (Fixed!)
+        # 1. CHECK FOR GREETINGS FIRST
         if self.is_greeting(raw_input):
             return self.get_greeting_response()
         
@@ -608,70 +668,53 @@ class KeyGenAI:
         
         # 4. Handle "learn about" command
         if raw_input_lower.startswith("learn about "):
-            topic = raw_input[12:].strip()  # Remove "learn about "
+            topic = raw_input[12:].strip()
             result = self.google_search(topic)
             if result:
                 result = self.rephraser(result, "clean")
                 return self.grammar_checker(emotion_prefix + f"I learned about {topic}:\n\n{result}")
             return f"I couldn't find information about '{topic}'. Please try a different topic."
         
-        # 5. Check if it's a question (ALWAYS search internet for questions)
+        # 5. Check if it's a question
         is_question = ("?" in raw_input or 
                       raw_input_lower.startswith(("what", "why", "how", "where", "when", "who", 
                                                    "which", "can", "is", "are", "do", "does",
                                                    "explain", "tell", "describe", "define")))
         
         if is_question:
-            answer = self.get_detailed_answer(raw_input)
+            # SMART FALLBACK: Check local first, then internet
+            answer, source = self.get_answer_with_fallback(raw_input)
             if answer:
-                answer = self.rephraser(answer, "clean")
-                return self.grammar_checker(emotion_prefix + answer)
+                formatted = self._format_answer(raw_input, answer, source)
+                formatted = self.rephraser(formatted, "clean")
+                return self.grammar_checker(emotion_prefix + formatted)
             else:
-                return "I searched everywhere but couldn't find a reliable answer. Could you rephrase your question?"
+                return "I searched everywhere but couldn't find a reliable answer. Could you rephrase your question? 🤔"
         
-        # 6. Check fact engine (GK)
-        for fact in self.gk_base:
-            if fact.get("q", "").lower() in raw_input_lower:
-                result = self.rephraser(fact["a"], "clean")
-                return self.grammar_checker(emotion_prefix + result)
-        
-        # 7. Check knowledge modules (JSON)
-        for module in self.knowledge_base:
-            for pattern in module.get("patterns", []):
-                if pattern.lower() in raw_input_lower:
-                    result = random.choice(module["responses"])
-                    result = self.rephraser(result, "clean")
-                    return self.grammar_checker(emotion_prefix + result)
-        
-        # 8. Pure emotion response
+        # 6. For non-questions, try to find relevant information
         tokens = self.tokenize(raw_input_lower)
+        keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
+        
+        if keywords:
+            # Try local knowledge first
+            local_result, confidence = self.search_local_knowledge(raw_input)
+            if local_result and confidence > 0.3 and len(local_result) > 100:
+                local_result = self.rephraser(local_result, "clean")
+                return self.grammar_checker(emotion_prefix + local_result)
+            
+            # If no good local result, try internet
+            search_result = self.google_search(raw_input)
+            if search_result and len(search_result) > 100:
+                search_result = self.rephraser(search_result, "clean")
+                return self.gram_checker(emotion_prefix + search_result)
+        
+        # 7. Pure emotion response
         subject_keywords = [t for t in tokens if t not in self.stopwords and t not in self.emotions and len(t) > 3]
         if emotion_prefix and not subject_keywords and len(tokens) <= 4:
             return self.grammar_checker(emotion_prefix)
         
-        # 9. Search local knowledge
-        keywords = [t for t in tokens if t not in self.stopwords and len(t) > 2]
-        if keywords:
-            best_sentence = None
-            max_overlap = 0
-            for sentence in self.raw_data_chunks:
-                overlap = sum(1 for kw in keywords if kw in sentence.lower())
-                if overlap > max_overlap:
-                    max_overlap = overlap
-                    best_sentence = sentence
-            
-            if best_sentence and max_overlap >= 2 and len(best_sentence) > 100:
-                best_sentence = self.rephraser(best_sentence, "clean")
-                return self.grammar_checker(emotion_prefix + best_sentence)
-        
-        # 10. ALWAYS try internet search as final fallback
-        search_result = self.google_search(raw_input)
-        if search_result and len(search_result) > 100:
-            search_result = self.rephraser(search_result, "clean")
-            return emotion_prefix + self.grammar_checker(search_result)
-        
-        # 11. Absolute final fallback
-        return "I'm not sure about that. Could you rephrase or ask a different question? You can also use 'learn about [topic]' to help me learn!"
+        # 8. Final fallback
+        return "I'm not sure about that. Could you rephrase or ask a different question? You can also use 'learn about [topic]' to help me learn! 📚"
 
 
 # Web server handler
@@ -685,127 +728,462 @@ class ChatHandler(BaseHTTPRequestHandler):
             self.end_headers()
             html = '''
             <!DOCTYPE html>
-            <html>
+            <html lang="en">
             <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>KeyGen.ai - AI Assistant</title>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
                 <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { 
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    :root {
+                        --primary: #6C63FF;
+                        --primary-dark: #5A52D5;
+                        --secondary: #FF6584;
+                        --bg: #0f0f1a;
+                        --surface: #1a1a2e;
+                        --surface-light: #252540;
+                        --text: #e0e0e0;
+                        --text-secondary: #a0a0b0;
+                        --border: #2a2a40;
+                        --success: #4CAF50;
+                        --gradient-1: linear-gradient(135deg, #6C63FF, #FF6584);
+                        --gradient-2: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        --shadow: 0 10px 40px rgba(0,0,0,0.3);
+                        --shadow-lg: 0 20px 60px rgba(0,0,0,0.4);
+                    }
+                    
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
+                    
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                        background: var(--bg);
                         min-height: 100vh;
                         display: flex;
                         justify-content: center;
                         align-items: center;
                         padding: 20px;
+                        background-image: 
+                            radial-gradient(ellipse at top left, rgba(108, 99, 255, 0.1), transparent 50%),
+                            radial-gradient(ellipse at bottom right, rgba(255, 101, 132, 0.1), transparent 50%);
                     }
+                    
                     .container {
-                        background: white;
-                        border-radius: 20px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                        max-width: 800px;
+                        background: var(--surface);
+                        border-radius: 24px;
+                        box-shadow: var(--shadow-lg);
+                        max-width: 850px;
                         width: 100%;
                         overflow: hidden;
+                        border: 1px solid var(--border);
+                        backdrop-filter: blur(10px);
                     }
+                    
                     .header {
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        padding: 20px;
-                        text-align: center;
+                        background: var(--gradient-1);
+                        padding: 24px 30px;
+                        display: flex;
+                        align-items: center;
+                        gap: 16px;
                     }
-                    .header h1 { font-size: 24px; margin-bottom: 5px; }
-                    .header p { font-size: 14px; opacity: 0.9; }
-                    #chat {
-                        height: 400px;
-                        padding: 20px;
+                    
+                    .header-icon {
+                        width: 48px;
+                        height: 48px;
+                        background: rgba(255,255,255,0.2);
+                        border-radius: 14px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 24px;
+                        backdrop-filter: blur(10px);
+                        animation: pulse 2s infinite;
+                    }
+                    
+                    @keyframes pulse {
+                        0%, 100% { transform: scale(1); }
+                        50% { transform: scale(1.05); }
+                    }
+                    
+                    .header-text h1 {
+                        color: white;
+                        font-size: 22px;
+                        font-weight: 700;
+                        margin-bottom: 2px;
+                    }
+                    
+                    .header-text p {
+                        color: rgba(255,255,255,0.8);
+                        font-size: 13px;
+                    }
+                    
+                    .status-dot {
+                        width: 8px;
+                        height: 8px;
+                        background: #4CAF50;
+                        border-radius: 50%;
+                        display: inline-block;
+                        margin-right: 6px;
+                        animation: glow 1.5s infinite;
+                    }
+                    
+                    @keyframes glow {
+                        0%, 100% { box-shadow: 0 0 5px #4CAF50; }
+                        50% { box-shadow: 0 0 20px #4CAF50; }
+                    }
+                    
+                    #chat-container {
+                        height: 450px;
                         overflow-y: auto;
-                        background: #f8f9fa;
+                        padding: 24px;
+                        background: var(--surface);
+                        scroll-behavior: smooth;
                     }
+                    
+                    #chat-container::-webkit-scrollbar {
+                        width: 6px;
+                    }
+                    
+                    #chat-container::-webkit-scrollbar-track {
+                        background: transparent;
+                    }
+                    
+                    #chat-container::-webkit-scrollbar-thumb {
+                        background: var(--border);
+                        border-radius: 3px;
+                    }
+                    
+                    .message-wrapper {
+                        display: flex;
+                        margin-bottom: 20px;
+                        animation: slideIn 0.3s ease-out;
+                    }
+                    
+                    @keyframes slideIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(10px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+                    
+                    .message-wrapper.user {
+                        justify-content: flex-end;
+                    }
+                    
                     .message {
-                        margin-bottom: 15px;
-                        padding: 10px 15px;
-                        border-radius: 15px;
-                        max-width: 80%;
-                        animation: fadeIn 0.3s;
+                        max-width: 75%;
+                        padding: 14px 18px;
+                        border-radius: 18px;
+                        position: relative;
+                        line-height: 1.5;
+                        font-size: 15px;
+                        word-wrap: break-word;
+                        white-space: pre-wrap;
                     }
-                    @keyframes fadeIn {
-                        from { opacity: 0; transform: translateY(10px); }
-                        to { opacity: 1; transform: translateY(0); }
-                    }
-                    .user-message {
-                        background: #667eea;
+                    
+                    .message-wrapper.user .message {
+                        background: var(--gradient-1);
                         color: white;
-                        margin-left: auto;
+                        border-bottom-right-radius: 4px;
+                        box-shadow: 0 4px 15px rgba(108, 99, 255, 0.3);
                     }
-                    .ai-message {
-                        background: #e9ecef;
-                        color: #333;
+                    
+                    .message-wrapper.ai .message {
+                        background: var(--surface-light);
+                        color: var(--text);
+                        border-bottom-left-radius: 4px;
+                        border: 1px solid var(--border);
                     }
+                    
+                    .message-avatar {
+                        width: 36px;
+                        height: 36px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 18px;
+                        flex-shrink: 0;
+                        margin: 0 10px;
+                    }
+                    
+                    .message-wrapper.ai .message-avatar {
+                        background: var(--surface-light);
+                    }
+                    
+                    .message-wrapper.user .message-avatar {
+                        background: var(--primary);
+                    }
+                    
+                    .typing-indicator {
+                        display: flex;
+                        align-items: center;
+                        gap: 12px;
+                        padding: 14px 18px;
+                        background: var(--surface-light);
+                        border-radius: 18px;
+                        border-bottom-left-radius: 4px;
+                        border: 1px solid var(--border);
+                        max-width: 100px;
+                    }
+                    
+                    .typing-dot {
+                        width: 8px;
+                        height: 8px;
+                        background: var(--text-secondary);
+                        border-radius: 50%;
+                        animation: typing 1.4s infinite;
+                    }
+                    
+                    .typing-dot:nth-child(2) {
+                        animation-delay: 0.2s;
+                    }
+                    
+                    .typing-dot:nth-child(3) {
+                        animation-delay: 0.4s;
+                    }
+                    
+                    @keyframes typing {
+                        0%, 60%, 100% {
+                            transform: translateY(0);
+                            opacity: 0.4;
+                        }
+                        30% {
+                            transform: translateY(-8px);
+                            opacity: 1;
+                        }
+                    }
+                    
                     .input-container {
-                        padding: 20px;
-                        background: white;
-                        border-top: 1px solid #dee2e6;
+                        padding: 20px 24px;
+                        background: var(--surface);
+                        border-top: 1px solid var(--border);
+                        display: flex;
+                        gap: 12px;
+                        align-items: center;
                     }
+                    
                     #input {
-                        width: 100%;
-                        padding: 12px 20px;
-                        border: 2px solid #dee2e6;
-                        border-radius: 25px;
-                        font-size: 16px;
+                        flex: 1;
+                        padding: 14px 20px;
+                        background: var(--surface-light);
+                        border: 2px solid var(--border);
+                        border-radius: 16px;
+                        color: var(--text);
+                        font-size: 15px;
                         outline: none;
-                        transition: border-color 0.3s;
+                        transition: all 0.3s;
                     }
+                    
                     #input:focus {
-                        border-color: #667eea;
+                        border-color: var(--primary);
+                        box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.1);
+                    }
+                    
+                    #input::placeholder {
+                        color: var(--text-secondary);
+                    }
+                    
+                    .send-btn {
+                        width: 48px;
+                        height: 48px;
+                        background: var(--gradient-1);
+                        border: none;
+                        border-radius: 14px;
+                        color: white;
+                        font-size: 20px;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        flex-shrink: 0;
+                    }
+                    
+                    .send-btn:hover {
+                        transform: scale(1.05);
+                        box-shadow: 0 4px 15px rgba(108, 99, 255, 0.4);
+                    }
+                    
+                    .send-btn:active {
+                        transform: scale(0.95);
+                    }
+                    
+                    .suggestions {
+                        display: flex;
+                        gap: 8px;
+                        padding: 0 24px 16px;
+                        flex-wrap: wrap;
+                    }
+                    
+                    .suggestion-chip {
+                        padding: 8px 16px;
+                        background: var(--surface-light);
+                        border: 1px solid var(--border);
+                        border-radius: 20px;
+                        color: var(--text-secondary);
+                        font-size: 13px;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                        white-space: nowrap;
+                    }
+                    
+                    .suggestion-chip:hover {
+                        background: var(--primary);
+                        color: white;
+                        border-color: var(--primary);
+                    }
+                    
+                    .timestamp {
+                        font-size: 11px;
+                        color: var(--text-secondary);
+                        margin-top: 4px;
+                        padding: 0 10px;
+                    }
+                    
+                    @media (max-width: 600px) {
+                        .container {
+                            border-radius: 0;
+                            height: 100vh;
+                        }
+                        
+                        #chat-container {
+                            height: calc(100vh - 200px);
+                        }
+                        
+                        .message {
+                            max-width: 85%;
+                        }
                     }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>🤖 KeyGen.ai Assistant</h1>
-                        <p>Internet-connected AI - Ask me anything!</p>
+                        <div class="header-icon">🤖</div>
+                        <div class="header-text">
+                            <h1>KeyGen.ai</h1>
+                            <p><span class="status-dot"></span>Online - Ready to help</p>
+                        </div>
                     </div>
-                    <div id="chat"></div>
+                    
+                    <div id="chat-container">
+                        <div class="message-wrapper ai">
+                            <div class="message-avatar">🤖</div>
+                            <div>
+                                <div class="message">
+                                    Hello! 👋 I'm KeyGen.ai, your AI assistant. I can answer questions using my knowledge base and search the internet when needed. How can I help you today?
+                                </div>
+                                <div class="timestamp">Just now</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="suggestions">
+                        <span class="suggestion-chip" onclick="useSuggestion(this)">What is artificial intelligence?</span>
+                        <span class="suggestion-chip" onclick="useSuggestion(this)">How does machine learning work?</span>
+                        <span class="suggestion-chip" onclick="useSuggestion(this)">Tell me about quantum computing</span>
+                        <span class="suggestion-chip" onclick="useSuggestion(this)">What is blockchain?</span>
+                    </div>
+                    
                     <div class="input-container">
                         <input type="text" id="input" placeholder="Type your message here..." autofocus>
+                        <button class="send-btn" onclick="sendMessage()">➤</button>
                     </div>
                 </div>
+                
                 <script>
-                    const chat = document.getElementById('chat');
+                    const chatContainer = document.getElementById('chat-container');
                     const input = document.getElementById('input');
                     
-                    function addMessage(text, isUser) {
-                        const div = document.createElement('div');
-                        div.className = 'message ' + (isUser ? 'user-message' : 'ai-message');
-                        div.textContent = text;
-                        chat.appendChild(div);
-                        chat.scrollTop = chat.scrollHeight;
+                    function getTime() {
+                        const now = new Date();
+                        return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     }
                     
-                    function addTypingIndicator() {
-                        const div = document.createElement('div');
-                        div.className = 'message ai-message';
-                        div.id = 'typing';
-                        div.textContent = '...';
-                        chat.appendChild(div);
-                        chat.scrollTop = chat.scrollHeight;
+                    function addMessage(text, isUser) {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'message-wrapper ' + (isUser ? 'user' : 'ai');
+                        
+                        const avatar = document.createElement('div');
+                        avatar.className = 'message-avatar';
+                        avatar.textContent = isUser ? '👤' : '🤖';
+                        
+                        const messageContainer = document.createElement('div');
+                        const message = document.createElement('div');
+                        message.className = 'message';
+                        message.textContent = text;
+                        
+                        const timestamp = document.createElement('div');
+                        timestamp.className = 'timestamp';
+                        timestamp.textContent = getTime();
+                        
+                        messageContainer.appendChild(message);
+                        messageContainer.appendChild(timestamp);
+                        
+                        if (isUser) {
+                            wrapper.appendChild(messageContainer);
+                            wrapper.appendChild(avatar);
+                        } else {
+                            wrapper.appendChild(avatar);
+                            wrapper.appendChild(messageContainer);
+                        }
+                        
+                        chatContainer.appendChild(wrapper);
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                        
+                        return message;
+                    }
+                    
+                    function showTypingIndicator() {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'message-wrapper ai';
+                        wrapper.id = 'typing-wrapper';
+                        
+                        const avatar = document.createElement('div');
+                        avatar.className = 'message-avatar';
+                        avatar.textContent = '🤖';
+                        
+                        const indicator = document.createElement('div');
+                        indicator.className = 'typing-indicator';
+                        indicator.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+                        
+                        wrapper.appendChild(avatar);
+                        wrapper.appendChild(indicator);
+                        chatContainer.appendChild(wrapper);
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                     
                     function removeTypingIndicator() {
-                        const typing = document.getElementById('typing');
+                        const typing = document.getElementById('typing-wrapper');
                         if (typing) typing.remove();
+                    }
+                    
+                    async function typeWriterEffect(element, text, speed = 20) {
+                        element.textContent = '';
+                        for (let i = 0; i < text.length; i++) {
+                            element.textContent += text.charAt(i);
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                            await new Promise(resolve => setTimeout(resolve, speed));
+                        }
                     }
                     
                     async function sendMessage() {
                         const message = input.value.trim();
                         if (!message) return;
                         
+                        // Add user message
                         addMessage(message, true);
                         input.value = '';
-                        addTypingIndicator();
+                        
+                        // Show typing indicator
+                        showTypingIndicator();
                         
                         try {
                             const response = await fetch('/chat', {
@@ -814,17 +1192,35 @@ class ChatHandler(BaseHTTPRequestHandler):
                                 body: JSON.stringify({message: message})
                             });
                             const data = await response.json();
+                            
+                            // Remove typing indicator
                             removeTypingIndicator();
-                            addMessage(data.response, false);
+                            
+                            // Add AI message with typing animation
+                            const aiMessage = addMessage('', false);
+                            await typeWriterEffect(aiMessage, data.response, 15);
+                            
                         } catch (error) {
                             removeTypingIndicator();
-                            addMessage('Error connecting to server. Please try again.', false);
+                            addMessage('⚠️ Error connecting to server. Please try again.', false);
                         }
                     }
                     
+                    function useSuggestion(chip) {
+                        input.value = chip.textContent;
+                        sendMessage();
+                    }
+                    
+                    // Handle Enter key
                     input.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter') sendMessage();
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendMessage();
+                        }
                     });
+                    
+                    // Focus input on load
+                    input.focus();
                 </script>
             </body>
             </html>
@@ -846,7 +1242,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 user_msg = data.get('message', '')
                 response_text = self.bot.get_response(user_msg)
             except Exception as e:
-                response_text = f"Error processing your request: {str(e)}"
+                response_text = f"⚠️ Error processing your request: {str(e)}"
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -871,13 +1267,24 @@ def run_server():
     server_address = ('0.0.0.0', port)
     server = HTTPServer(server_address, ChatHandler)
     
-    print(f"\n{'='*50}")
-    print(f"🤖 KeyGen.ai SYSTEM ONLINE")
-    print(f"{'='*50}")
-    print(f"🌐 Server: http://0.0.0.0:{port}")
-    print(f"📚 Features: Internet Search | Wikipedia | Greetings | Emotions")
-    print(f"💡 Tip: Ask any question and I'll search the internet!")
-    print(f"{'='*50}\n")
+    print(f"""
+{'='*60}
+🤖 KeyGen.ai SYSTEM ONLINE
+{'='*60}
+🌐 Server: http://0.0.0.0:{port}
+📚 Features: 
+   • Local Knowledge Base (Priority)
+   • Internet Search (Google, Bing, DuckDuckGo)
+   • Wikipedia API
+   • Smart Fallback System
+   • Typing Animation
+   • Modern Dark UI
+💡 How it works:
+   1. Checks local knowledge first
+   2. If confidence < 30%, searches internet
+   3. Falls back to Wikipedia if needed
+{'='*60}
+    """)
     
     try:
         server.serve_forever()
